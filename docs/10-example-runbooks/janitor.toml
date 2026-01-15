@@ -1,0 +1,101 @@
+# Janitor Runbook
+#
+# Periodic cleanup of stale resources.
+# Scans: queue entries, worktrees, sessions, locks.
+
+# ------------------------------------------------------------------------------
+# Cron
+# ------------------------------------------------------------------------------
+
+[cron.janitor]
+interval = "5m"
+scanners = ["stale_queue_entries", "worktrees_merged", "worktrees_unmerged", "worktrees_dirty", "dead_sessions", "stale_locks", "old_operations", "old_logs"]
+on_error = "log_and_continue"
+
+# ------------------------------------------------------------------------------
+# Scanners
+# ------------------------------------------------------------------------------
+
+# Stale queue entries (any queue)
+[scanner.stale_queue_entries]
+source = "oj queue list-all --status pending --json"
+condition = "! git ls-remote --heads origin {branch} | grep -q {branch}"
+action = "oj queue remove {queue} {id}"
+
+# Orphaned worktrees (no operation, clean, branch merged)
+[scanner.worktrees_merged]
+source = "git worktree list --porcelain"
+filter = "path != '.'"
+condition = """
+! oj pipeline exists --workspace {path} &&
+git diff --quiet {path} &&
+git branch -r --merged origin/main | grep -q {branch}
+"""
+action = "git worktree remove {path}"
+
+# Orphaned worktrees (no operation, clean, branch NOT merged) - warn only
+[scanner.worktrees_unmerged]
+source = "git worktree list --porcelain"
+filter = "path != '.'"
+condition = """
+! oj pipeline exists --workspace {path} &&
+git diff --quiet {path} &&
+! git branch -r --merged origin/main | grep -q {branch}
+"""
+action = "log_warning"
+message = "Orphaned worktree with unmerged branch: {path} ({branch})"
+
+# Dirty worktrees - escalate, never auto-delete
+[scanner.worktrees_dirty]
+source = "git worktree list --porcelain"
+filter = "path != '.'"
+condition = """
+! oj pipeline exists --workspace {path} &&
+! git diff --quiet {path}
+"""
+action = "escalate"
+message = "Dirty orphaned worktree needs manual cleanup: {path}"
+
+# Dead sessions
+[scanner.dead_sessions]
+source = "tmux list-sessions -F '#{session_name}' 2>/dev/null"
+filter = "starts_with('oj-')"
+condition = "! oj pipeline exists --session {name}"
+action = "tmux kill-session -t {name}"
+
+# Stale locks
+[scanner.stale_locks]
+source = "oj lock list --json"
+condition = "oj lock is-stale {id}"
+action = "oj lock force-release {id}"
+
+# Old completed operations (archive after 7 days)
+[scanner.old_operations]
+source = "oj pipeline list --phase merged --json"
+condition = "age(completed_at) > '7d'"
+action = "oj pipeline archive {name}"
+
+# Old logs
+[scanner.old_logs]
+source = "find .oj/logs -type f -mtime +30"
+action = "rm {path}"
+
+# ------------------------------------------------------------------------------
+# Safety
+# ------------------------------------------------------------------------------
+
+[safety]
+# Protected paths - never delete
+protected = [".", ".git", ".oj", "main", "master"]
+
+# Dry run on first execution
+dry_run_first = true
+
+# ------------------------------------------------------------------------------
+# Events
+# ------------------------------------------------------------------------------
+
+[events]
+on_clean = "oj emit janitor:clean --type {scanner} --resource {id}"
+on_skip = "oj emit janitor:skip --type {scanner} --resource {id} --reason '{reason}'"
+on_escalate = "oj emit janitor:escalate --message '{message}'"
