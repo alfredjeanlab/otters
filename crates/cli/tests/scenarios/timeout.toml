@@ -1,0 +1,6 @@
+name = "timeout"
+
+[[responses]]
+pattern = { type = "any" }
+response = ""
+failure = { type = "connection_timeout", after_ms = 100 }

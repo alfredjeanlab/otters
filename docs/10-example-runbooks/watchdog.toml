@@ -1,0 +1,94 @@
+# Watchdog Runbook
+#
+# Monitors active operations for stuck states.
+# Nudges, restarts, or escalates as needed.
+
+# ------------------------------------------------------------------------------
+# Cron
+# ------------------------------------------------------------------------------
+
+[cron.watchdog]
+interval = "30s"
+watchers = ["agent_idle", "phase_timeout", "orphan_operation", "worker_health"]
+on_error = "log_and_continue"
+
+# ------------------------------------------------------------------------------
+# Watchers
+# ------------------------------------------------------------------------------
+
+# Agent session idle (no output)
+[watcher.agent_idle]
+source = "oj pipeline list --phase plan,decompose,execute --json"
+condition = "oj session idle-time {session} > {idle_threshold}"
+response = ["nudge", "restart:2", "escalate"]
+
+[watcher.agent_idle.thresholds]
+plan = "2m"
+decompose = "2m"
+execute = "5m"
+
+# Phase timeout
+[watcher.phase_timeout]
+source = "oj pipeline list --active --json"
+condition = "oj pipeline phase-age {name} > {timeout}"
+response = ["checkpoint", "restart", "escalate"]
+
+[watcher.phase_timeout.timeouts]
+init = "5m"
+blocked = "24h"
+plan = "30m"
+decompose = "15m"
+execute = "4h"
+merge = "30m"
+
+# Session died but operation not updated
+[watcher.orphan_operation]
+source = "oj pipeline list --phase plan,decompose,execute --has-session --json"
+condition = "! oj session alive {session}"
+response = ["verify_completion", "restart", "escalate"]
+
+# Worker unhealthy
+[watcher.worker_health]
+source = "oj worker list --json"
+condition = "! oj worker healthy {id}"
+response = ["restart_worker", "escalate"]
+
+# ------------------------------------------------------------------------------
+# Actions
+# ------------------------------------------------------------------------------
+
+[action.nudge]
+run = "oj session nudge {session}"
+cooldown = "30s"
+
+[action.restart]
+max = 2
+run = """
+oj session kill {session}
+oj pipeline resume {name}
+"""
+cooldown = "5m"
+
+[action.checkpoint]
+run = "oj pipeline checkpoint {name}"
+
+[action.verify_completion]
+run = """
+if wk list -l plan:{name} -s todo,in_progress --count | grep -q '^0$'; then
+    oj pipeline transition {name} completed
+    exit 0
+fi
+exit 1
+"""
+
+[action.restart_worker]
+run = "oj worker restart {id}"
+
+# ------------------------------------------------------------------------------
+# Events
+# ------------------------------------------------------------------------------
+
+[events]
+on_nudge = "oj emit watchdog:nudge --id {name}"
+on_restart = "oj emit watchdog:restart --id {name}"
+on_escalate = "oj emit watchdog:escalate --id {name} --reason '{reason}'"

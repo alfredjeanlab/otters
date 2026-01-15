@@ -1,0 +1,12 @@
+name = "transient-failure"
+
+# First request triggers failure
+[[responses]]
+pattern = { type = "contains", text = "first-attempt" }
+response = ""
+failure = { type = "network_unreachable" }
+
+# Retry requests succeed
+[[responses]]
+pattern = { type = "any" }
+response = "Success on retry!"

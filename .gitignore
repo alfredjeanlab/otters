@@ -1,0 +1,10 @@
+.wok/
+.v0/
+target/
+.build/
+.worktrees/
+
+# Downloaded BATS testing libraries (run scripts/spec to auto-install)
+tests/specs/bats/bats-core/
+tests/specs/bats/bats-support/
+tests/specs/bats/bats-assert/

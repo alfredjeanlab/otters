@@ -1,0 +1,144 @@
+#!/bin/bash
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright (c) 2026 Alfred Jean LLC
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+LICENSE_FILE="$ROOT_DIR/LICENSE"
+
+# License header for Rust files
+RUST_HEADER="// SPDX-License-Identifier: BUSL-1.1
+// Copyright (c) 2026 Alfred Jean LLC"
+
+# Roll forward the BSL Change Date to today + 3 years (rounded to nearest quarter)
+# Only updates if the new date is at least 3 months after the current Change Date
+roll_forward_change_date() {
+    if [[ ! -f "$LICENSE_FILE" ]]; then
+        echo "LICENSE file not found at $LICENSE_FILE"
+        return 1
+    fi
+
+    # Extract current Change Date from LICENSE file
+    local current_date
+    current_date=$(grep "^Change Date:" "$LICENSE_FILE" | sed 's/Change Date: //')
+
+    if [[ -z "$current_date" ]]; then
+        echo "Could not find Change Date in LICENSE file"
+        return 1
+    fi
+
+    # Calculate target date: today + 3 years, rounded to nearest quarter
+    local target_date
+    if [[ "$(uname)" == "Darwin" ]]; then
+        # macOS date command
+        local year_month
+        year_month=$(date -v+3y "+%Y %m")
+        local year=$(echo "$year_month" | awk '{print $1}')
+        local month=$(echo "$year_month" | awk '{print $2}')
+
+        # Round to nearest quarter (01-01, 04-01, 07-01, 10-01)
+        if [[ $month -le 2 ]]; then
+            target_date="${year}-01-01"
+        elif [[ $month -le 5 ]]; then
+            target_date="${year}-04-01"
+        elif [[ $month -le 8 ]]; then
+            target_date="${year}-07-01"
+        else
+            target_date="${year}-10-01"
+        fi
+    else
+        # Linux date command
+        local year_month
+        year_month=$(date -d "+3 years" "+%Y %m")
+        local year=$(echo "$year_month" | awk '{print $1}')
+        local month=$(echo "$year_month" | awk '{print $2}')
+
+        # Round to nearest quarter
+        if [[ $month -le 2 ]]; then
+            target_date="${year}-01-01"
+        elif [[ $month -le 5 ]]; then
+            target_date="${year}-04-01"
+        elif [[ $month -le 8 ]]; then
+            target_date="${year}-07-01"
+        else
+            target_date="${year}-10-01"
+        fi
+    fi
+
+    # Convert dates to epoch seconds
+    local current_epoch
+    local target_epoch
+    if [[ "$(uname)" == "Darwin" ]]; then
+        current_epoch=$(date -j -f "%Y-%m-%d" "$current_date" "+%s" 2>/dev/null || echo "0")
+        target_epoch=$(date -j -f "%Y-%m-%d" "$target_date" "+%s" 2>/dev/null || echo "0")
+    else
+        current_epoch=$(date -d "$current_date" "+%s" 2>/dev/null || echo "0")
+        target_epoch=$(date -d "$target_date" "+%s" 2>/dev/null || echo "0")
+    fi
+
+    if [[ "$current_epoch" -eq 0 ]]; then
+        echo "Could not parse current Change Date: $current_date"
+        return 1
+    fi
+
+    if [[ "$target_epoch" -eq 0 ]]; then
+        echo "Could not parse target date: $target_date"
+        return 1
+    fi
+
+    # Calculate difference in seconds (3 months ~= 90 days = 7776000 seconds)
+    local three_months_seconds=$((90 * 24 * 60 * 60))
+    local diff=$((target_epoch - current_epoch))
+
+    if [[ $diff -ge $three_months_seconds ]]; then
+        echo "Updating Change Date from $current_date to $target_date (at least 3 months forward)"
+
+        # Update LICENSE file
+        if [[ "$(uname)" == "Darwin" ]]; then
+            sed -i '' "s/^Change Date: .*/Change Date: $target_date/" "$LICENSE_FILE"
+        else
+            sed -i "s/^Change Date: .*/Change Date: $target_date/" "$LICENSE_FILE"
+        fi
+
+        echo "Updated LICENSE Change Date to $target_date"
+        return 0
+    else
+        echo "Change Date ($current_date) is already within 3 months of target ($target_date). No update needed."
+        return 0
+    fi
+}
+
+# Add license header to a Rust file
+add_rust_header() {
+    local file="$1"
+
+    # Skip if already has copyright header
+    if head -3 "$file" | grep -q "Copyright"; then
+        return 0
+    fi
+
+    # Create temp file with header + original content
+    {
+        echo "$RUST_HEADER"
+        echo ""
+        cat "$file"
+    } > "$file.tmp"
+    mv "$file.tmp" "$file"
+    echo "Added header to: $file"
+}
+
+cd "$ROOT_DIR"
+
+# Roll forward Change Date if needed
+echo "Checking BSL Change Date..."
+roll_forward_change_date
+echo ""
+
+# Process Rust files in crates/
+echo "Processing Rust files..."
+find crates -name "*.rs" -type f | while read -r file; do
+    add_rust_header "$file"
+done
+
+echo "Done."

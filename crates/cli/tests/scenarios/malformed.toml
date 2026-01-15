@@ -1,0 +1,6 @@
+name = "malformed"
+
+[[responses]]
+pattern = { type = "any" }
+response = ""
+failure = { type = "malformed_json", raw = "{\"type\":\"message\",\"content\":[{" }
