@@ -90,6 +90,26 @@ impl<A: Adapters> Executor<A> {
                 }
                 Ok(())
             }
+            Effect::SaveCheckpoint { pipeline_id, checkpoint } => {
+                tracing::debug!(?pipeline_id, sequence = checkpoint.sequence, "checkpoint saved");
+                Ok(())
+            }
+            Effect::ScheduleTask { task_id, delay } => {
+                tracing::debug!(?task_id, ?delay, "task scheduled");
+                Ok(())
+            }
+            Effect::CancelTask { task_id } => {
+                tracing::debug!(?task_id, "task cancelled");
+                Ok(())
+            }
+            Effect::SetTimer { id, duration } => {
+                tracing::debug!(id, ?duration, "timer set");
+                Ok(())
+            }
+            Effect::CancelTimer { id } => {
+                tracing::debug!(id, "timer cancelled");
+                Ok(())
+            }
         }
     }
 

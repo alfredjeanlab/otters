@@ -58,7 +58,9 @@ impl BugfixPipeline {
             }),
             Phase::Done => None,
             Phase::Failed { .. } => None,
-            _ => None,
+            Phase::Blocked { .. } => None,
+            // Build phases not used in bugfix pipeline
+            Phase::Plan | Phase::Decompose | Phase::Execute => None,
         }
     }
 

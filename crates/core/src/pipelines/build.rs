@@ -62,7 +62,9 @@ impl BuildPipeline {
             }),
             Phase::Done => None,
             Phase::Failed { .. } => None,
-            _ => None,
+            Phase::Blocked { .. } => None,
+            // Bugfix phases not used in build pipeline
+            Phase::Fix | Phase::Verify | Phase::Cleanup => None,
         }
     }
 

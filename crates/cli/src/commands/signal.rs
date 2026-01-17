@@ -1,6 +1,7 @@
 //! Signal commands (done, checkpoint)
 
 use anyhow::bail;
+use oj_core::clock::SystemClock;
 use oj_core::pipeline::PipelineEvent;
 use oj_core::storage::JsonStore;
 
@@ -41,7 +42,8 @@ pub async fn handle_done(error: Option<String>) -> anyhow::Result<()> {
         None => PipelineEvent::PhaseComplete,
     };
 
-    let (pipeline, _effects) = pipeline.transition(event);
+    let clock = SystemClock;
+    let (pipeline, _effects) = pipeline.transition(event, &clock);
     store.save_pipeline(&pipeline)?;
 
     match &error {

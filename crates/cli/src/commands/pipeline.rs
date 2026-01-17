@@ -2,6 +2,7 @@
 
 use anyhow::bail;
 use clap::Subcommand;
+use oj_core::clock::SystemClock;
 use oj_core::pipeline::PipelineEvent;
 use oj_core::storage::JsonStore;
 use serde::Serialize;
@@ -124,7 +125,8 @@ async fn transition_pipeline(
         other => bail!("Unknown event: {}. Use 'complete', 'failed', or 'unblocked'", other),
     };
 
-    let (pipeline, _effects) = pipeline.transition(event);
+    let clock = SystemClock;
+    let (pipeline, _effects) = pipeline.transition(event, &clock);
     store.save_pipeline(&pipeline)?;
 
     println!("Pipeline '{}' transitioned to: {}", name, pipeline.phase.name());
