@@ -1,0 +1,103 @@
+//! Effect executor that processes effects from state machines
+
+use crate::adapters::{IssueAdapter, RepoAdapter, SessionAdapter};
+use crate::effect::{Effect, LogLevel};
+use crate::storage::JsonStore;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum ExecutorError {
+    #[error("session error: {0}")]
+    Session(#[from] crate::adapters::SessionError),
+    #[error("repo error: {0}")]
+    Repo(#[from] crate::adapters::RepoError),
+    #[error("issue error: {0}")]
+    Issue(#[from] crate::adapters::IssueError),
+    #[error("storage error: {0}")]
+    Storage(#[from] crate::storage::StorageError),
+}
+
+/// Adapters bundle for effect execution
+pub trait Adapters: Clone + Send + Sync + 'static {
+    type Sessions: SessionAdapter;
+    type Repos: RepoAdapter;
+    type Issues: IssueAdapter;
+
+    fn sessions(&self) -> Self::Sessions;
+    fn repos(&self) -> Self::Repos;
+    fn issues(&self) -> Self::Issues;
+}
+
+/// Executes effects from state machines
+pub struct Executor<A: Adapters> {
+    adapters: A,
+    store: JsonStore,
+}
+
+impl<A: Adapters> Executor<A> {
+    pub fn new(adapters: A, store: JsonStore) -> Self {
+        Self { adapters, store }
+    }
+
+    /// Execute a single effect
+    pub async fn execute(&self, effect: Effect) -> Result<(), ExecutorError> {
+        match effect {
+            Effect::Emit(event) => {
+                tracing::info!(?event, "event emitted");
+                Ok(())
+            }
+            Effect::SpawnSession { name, cwd, command } => {
+                self.adapters.sessions().spawn(&name, &cwd, &command).await?;
+                Ok(())
+            }
+            Effect::KillSession { name } => {
+                let id = crate::adapters::SessionId(name);
+                self.adapters.sessions().kill(&id).await?;
+                Ok(())
+            }
+            Effect::SendToSession { name, input } => {
+                let id = crate::adapters::SessionId(name);
+                self.adapters.sessions().send(&id, &input).await?;
+                Ok(())
+            }
+            Effect::CreateWorktree { branch, path } => {
+                self.adapters.repos().worktree_add(&branch, &path).await?;
+                Ok(())
+            }
+            Effect::RemoveWorktree { path } => {
+                self.adapters.repos().worktree_remove(&path).await?;
+                Ok(())
+            }
+            Effect::Merge {
+                path,
+                branch,
+                strategy,
+            } => {
+                self.adapters.repos().merge(&path, &branch, strategy).await?;
+                Ok(())
+            }
+            Effect::SaveState { kind, id } => {
+                // State saving is handled by the caller
+                tracing::debug!(kind, id, "save state requested");
+                Ok(())
+            }
+            Effect::Log { level, message } => {
+                match level {
+                    LogLevel::Debug => tracing::debug!("{}", message),
+                    LogLevel::Info => tracing::info!("{}", message),
+                    LogLevel::Warn => tracing::warn!("{}", message),
+                    LogLevel::Error => tracing::error!("{}", message),
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// Execute multiple effects
+    pub async fn execute_all(&self, effects: Vec<Effect>) -> Result<(), ExecutorError> {
+        for effect in effects {
+            self.execute(effect).await?;
+        }
+        Ok(())
+    }
+}

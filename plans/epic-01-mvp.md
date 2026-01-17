@@ -1,5 +1,7 @@
 # Epic 1: MVP - Replace Bash Scripts
 
+**Root Feature:** `otters-9428`
+
 ## Overview
 
 Replace existing bash scripts (`feature`, `bugfix`, `mergeq`, `merge`, `tree`) with a Rust implementation that provides equivalent functionality. The MVP prioritizes getting something working end-to-end over architectural purity:

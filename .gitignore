@@ -1,2 +1,4 @@
 .wok/
 .v0/
+target/
+.build/
