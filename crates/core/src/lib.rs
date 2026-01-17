@@ -33,3 +33,11 @@ pub use adapters::{
     ClaudeAdapter, FakeAdapters, GitAdapter, IssueAdapter, RepoAdapter, SessionAdapter,
     TmuxAdapter, WkAdapter,
 };
+
+// Re-export engine
+pub use engine::{
+    Engine, EngineError, EffectResult,
+    RecoveryAction, RecoveryConfig, RecoveryState,
+    ScheduledItem, ScheduledKind, Scheduler,
+};
+pub use engine::executor::Adapters;

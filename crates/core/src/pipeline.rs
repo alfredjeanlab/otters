@@ -184,6 +184,14 @@ impl Pipeline {
         }
     }
 
+    /// Set the current task for this pipeline
+    pub fn with_current_task(self, task_id: TaskId) -> Self {
+        Self {
+            current_task_id: Some(task_id),
+            ..self
+        }
+    }
+
     /// Get the ordered phases for this pipeline kind
     fn phase_sequence(&self) -> Vec<Phase> {
         match self.kind {

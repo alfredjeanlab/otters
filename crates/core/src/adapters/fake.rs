@@ -84,6 +84,9 @@ struct FakeState {
     issues: HashMap<String, IssueInfo>,
     next_issue_id: u32,
     pane_content: HashMap<String, String>,
+    // Configurable failure modes
+    send_fails: bool,
+    merge_conflicts: bool,
 }
 
 struct FakeSession {
@@ -165,6 +168,45 @@ impl FakeAdapters {
             state: self.state.clone(),
         }
     }
+
+    /// Mark a session as dead (is_alive returns false)
+    pub fn mark_session_dead(&self, session_id: &str) {
+        let mut state = self.state.lock().unwrap();
+        if let Some(session) = state.sessions.get_mut(session_id) {
+            session.alive = false;
+        }
+    }
+
+    /// Configure send to fail for testing error paths
+    pub fn set_send_fails(&self, fails: bool) {
+        let mut state = self.state.lock().unwrap();
+        state.send_fails = fails;
+    }
+
+    /// Configure merges to conflict for testing
+    pub fn set_merge_conflicts(&self, conflicts: bool) {
+        let mut state = self.state.lock().unwrap();
+        state.merge_conflicts = conflicts;
+    }
+}
+
+// Implement the Adapters trait for FakeAdapters
+impl crate::engine::executor::Adapters for FakeAdapters {
+    type Sessions = FakeSessionAdapter;
+    type Repos = FakeRepoAdapter;
+    type Issues = FakeIssueAdapter;
+
+    fn sessions(&self) -> Self::Sessions {
+        self.sessions()
+    }
+
+    fn repos(&self) -> Self::Repos {
+        self.repos()
+    }
+
+    fn issues(&self) -> Self::Issues {
+        self.issues()
+    }
 }
 
 // =============================================================================
@@ -209,6 +251,10 @@ impl SessionAdapter for FakeSessionAdapter {
             id: id.0.clone(),
             input: input.to_string(),
         });
+
+        if state.send_fails {
+            return Err(SessionError::SpawnFailed("configured to fail".to_string()));
+        }
 
         if !state.sessions.contains_key(&id.0) {
             return Err(SessionError::NotFound(id.clone()));
@@ -348,6 +394,12 @@ impl RepoAdapter for FakeRepoAdapter {
             branch: branch.to_string(),
             strategy,
         });
+
+        if state.merge_conflicts {
+            return Ok(MergeResult::Conflict {
+                files: vec!["conflicting-file.rs".to_string()],
+            });
+        }
 
         Ok(match strategy {
             MergeStrategy::FastForward => MergeResult::FastForwarded,

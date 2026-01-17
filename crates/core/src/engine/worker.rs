@@ -141,22 +141,6 @@ mod tests {
     use crate::queue::{Queue, QueueItem};
     use std::collections::HashMap;
 
-    impl Adapters for FakeAdapters {
-        type Sessions = crate::adapters::fake::FakeSessionAdapter;
-        type Repos = crate::adapters::fake::FakeRepoAdapter;
-        type Issues = crate::adapters::fake::FakeIssueAdapter;
-
-        fn sessions(&self) -> Self::Sessions {
-            FakeAdapters::sessions(self)
-        }
-        fn repos(&self) -> Self::Repos {
-            FakeAdapters::repos(self)
-        }
-        fn issues(&self) -> Self::Issues {
-            FakeAdapters::issues(self)
-        }
-    }
-
     #[tokio::test]
     async fn worker_returns_false_when_queue_empty() {
         let adapters = FakeAdapters::new();

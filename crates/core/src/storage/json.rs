@@ -2,10 +2,12 @@
 
 use crate::pipeline::Pipeline;
 use crate::queue::Queue;
+use crate::task::{Task, TaskId, TaskState};
 use crate::workspace::Workspace;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use std::time::Duration;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -138,6 +140,110 @@ impl JsonStore {
     /// Load a queue
     pub fn load_queue(&self, name: &str) -> Result<Queue, StorageError> {
         self.load("queues", name)
+    }
+
+    /// Save a task
+    pub fn save_task(&self, task: &Task) -> Result<(), StorageError> {
+        let storable = StorableTask::from_task(task);
+        self.save("tasks", &task.id.0, &storable)
+    }
+
+    /// Load a task
+    pub fn load_task(&self, id: &str) -> Result<Task, StorageError> {
+        let storable: StorableTask = self.load("tasks", id)?;
+        Ok(storable.to_task())
+    }
+
+    /// List all tasks
+    pub fn list_tasks(&self) -> Result<Vec<String>, StorageError> {
+        self.list("tasks")
+    }
+}
+
+/// Serializable version of Task (Instant fields are stored as elapsed microseconds from a reference point)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct StorableTask {
+    id: String,
+    pipeline_id: String,
+    phase: String,
+    state: StorableTaskState,
+    session_id: Option<String>,
+    heartbeat_interval_secs: u64,
+    stuck_threshold_secs: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+enum StorableTaskState {
+    Pending,
+    Running,
+    Stuck { nudge_count: u32 },
+    Done { output: Option<String> },
+    Failed { reason: String },
+}
+
+impl StorableTask {
+    fn from_task(task: &Task) -> Self {
+        let state = match &task.state {
+            TaskState::Pending => StorableTaskState::Pending,
+            TaskState::Running => StorableTaskState::Running,
+            TaskState::Stuck { nudge_count, .. } => StorableTaskState::Stuck {
+                nudge_count: *nudge_count,
+            },
+            TaskState::Done { output } => StorableTaskState::Done {
+                output: output.clone(),
+            },
+            TaskState::Failed { reason } => StorableTaskState::Failed {
+                reason: reason.clone(),
+            },
+        };
+
+        StorableTask {
+            id: task.id.0.clone(),
+            pipeline_id: task.pipeline_id.0.clone(),
+            phase: task.phase.clone(),
+            state,
+            session_id: task.session_id.as_ref().map(|s| s.0.clone()),
+            heartbeat_interval_secs: task.heartbeat_interval.as_secs(),
+            stuck_threshold_secs: task.stuck_threshold.as_secs(),
+        }
+    }
+
+    fn to_task(&self) -> Task {
+        use crate::clock::{Clock, SystemClock};
+        use crate::pipeline::PipelineId;
+        use crate::session::SessionId;
+
+        let clock = SystemClock;
+        let now = clock.now();
+
+        let state = match &self.state {
+            StorableTaskState::Pending => TaskState::Pending,
+            StorableTaskState::Running => TaskState::Running,
+            StorableTaskState::Stuck { nudge_count } => TaskState::Stuck {
+                since: now,
+                nudge_count: *nudge_count,
+            },
+            StorableTaskState::Done { output } => TaskState::Done {
+                output: output.clone(),
+            },
+            StorableTaskState::Failed { reason } => TaskState::Failed {
+                reason: reason.clone(),
+            },
+        };
+
+        Task {
+            id: TaskId(self.id.clone()),
+            pipeline_id: PipelineId(self.pipeline_id.clone()),
+            phase: self.phase.clone(),
+            state,
+            session_id: self.session_id.as_ref().map(|s| SessionId(s.clone())),
+            heartbeat_interval: Duration::from_secs(self.heartbeat_interval_secs),
+            stuck_threshold: Duration::from_secs(self.stuck_threshold_secs),
+            last_heartbeat: None,
+            created_at: now,
+            started_at: None,
+            completed_at: None,
+        }
     }
 }
 
