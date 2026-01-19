@@ -15,6 +15,7 @@ mod common;
 
 use assert_cmd::Command;
 use common::{claudeless, setup_test_env, tmux, unique_id};
+use predicates::prelude::*;
 
 /// Helper to check if claudeless integration tests should run
 fn should_run_claudeless_tests() -> bool {
@@ -45,15 +46,25 @@ fn test_network_failure_detected() {
         .current_dir(temp.path())
         .env("PATH", &path)
         .env("CLAUDELESS_SCENARIO", scenario.display().to_string())
-        .args(["run", "build", &name, "Test network failure handling"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Test network failure handling",
+        ])
         .assert()
         .success();
 
     // Verify pipeline was created (even if it will fail later)
-    let state_path = temp
-        .path()
-        .join(format!(".build/operations/pipelines/{}.json", pipeline_id));
-    assert!(state_path.exists(), "Pipeline state should exist");
+    Command::cargo_bin("oj")
+        .unwrap()
+        .current_dir(temp.path())
+        .args(["pipeline", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(&pipeline_id));
 }
 
 #[test]
@@ -79,15 +90,25 @@ fn test_auth_failure_detected() {
         .current_dir(temp.path())
         .env("PATH", &path)
         .env("CLAUDELESS_SCENARIO", scenario.display().to_string())
-        .args(["run", "build", &name, "Test auth failure handling"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Test auth failure handling",
+        ])
         .assert()
         .success();
 
     // Pipeline should be created
-    let state_path = temp
-        .path()
-        .join(format!(".build/operations/pipelines/{}.json", pipeline_id));
-    assert!(state_path.exists(), "Pipeline state should exist");
+    Command::cargo_bin("oj")
+        .unwrap()
+        .current_dir(temp.path())
+        .args(["pipeline", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(&pipeline_id));
 }
 
 #[test]
@@ -113,7 +134,14 @@ fn test_auth_failure_message_recorded() {
         .current_dir(temp.path())
         .env("PATH", &path)
         .env("CLAUDELESS_SCENARIO", scenario.display().to_string())
-        .args(["run", "build", &name, "Test auth error message"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Test auth error message",
+        ])
         .assert()
         .success();
 
@@ -144,7 +172,14 @@ fn test_rate_limit_handled() {
         .current_dir(temp.path())
         .env("PATH", &path)
         .env("CLAUDELESS_SCENARIO", scenario.display().to_string())
-        .args(["run", "build", &name, "Test rate limit handling"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Test rate limit handling",
+        ])
         .assert()
         .success();
 
@@ -180,7 +215,14 @@ fn test_malformed_response_handled() {
         .current_dir(temp.path())
         .env("PATH", &path)
         .env("CLAUDELESS_SCENARIO", scenario.display().to_string())
-        .args(["run", "build", &name, "Test malformed response handling"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Test malformed response handling",
+        ])
         .assert()
         .success();
 
@@ -216,15 +258,25 @@ fn test_timeout_detected() {
         .current_dir(temp.path())
         .env("PATH", &path)
         .env("CLAUDELESS_SCENARIO", scenario.display().to_string())
-        .args(["run", "build", &name, "Test timeout handling"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Test timeout handling",
+        ])
         .assert()
         .success();
 
     // Pipeline should be created
-    assert!(temp
-        .path()
-        .join(format!(".build/operations/pipelines/{}.json", pipeline_id))
-        .exists());
+    Command::cargo_bin("oj")
+        .unwrap()
+        .current_dir(temp.path())
+        .args(["pipeline", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(&pipeline_id));
 }
 
 #[test]
@@ -240,7 +292,14 @@ fn test_session_crash_detected() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name, "Test session crash detection"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Test session crash detection",
+        ])
         .assert()
         .success();
 
@@ -287,13 +346,23 @@ fn test_recovery_after_transient_failure() {
         .current_dir(temp.path())
         .env("PATH", &path)
         .env("CLAUDELESS_SCENARIO", scenario.display().to_string())
-        .args(["run", "build", &name, "Test transient failure recovery"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Test transient failure recovery",
+        ])
         .assert()
         .success();
 
-    // Verify pipeline state file exists
-    let state_path = temp
-        .path()
-        .join(format!(".build/operations/pipelines/{}.json", pipeline_id));
-    assert!(state_path.exists(), "Pipeline state should exist");
+    // Verify pipeline was created
+    Command::cargo_bin("oj")
+        .unwrap()
+        .current_dir(temp.path())
+        .args(["pipeline", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(&pipeline_id));
 }

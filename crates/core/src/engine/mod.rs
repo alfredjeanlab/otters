@@ -7,6 +7,7 @@ pub mod executor;
 pub mod recovery;
 pub mod runtime;
 pub mod scheduler;
+mod signals;
 pub mod worker;
 
 // Re-exports

@@ -30,7 +30,14 @@ fn test_workspace_list_shows_workspaces() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name, "Workspace list test"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Workspace list test",
+        ])
         .assert()
         .success();
 
@@ -57,7 +64,14 @@ fn test_workspace_show_displays_details() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name, "Workspace show test"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Workspace show test",
+        ])
         .assert()
         .success();
 
@@ -84,7 +98,14 @@ fn test_workspace_creates_git_worktree() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name, "Git worktree test"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Git worktree test",
+        ])
         .assert()
         .success();
 
@@ -113,7 +134,14 @@ fn test_workspace_has_claudemd() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name, "CLAUDE.md existence test"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=CLAUDE.md existence test",
+        ])
         .assert()
         .success();
 
@@ -152,7 +180,14 @@ fn test_workspace_settings_synced() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name, "Settings sync test"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Settings sync test",
+        ])
         .assert()
         .success();
 
@@ -186,7 +221,14 @@ fn test_workspace_cleanup_on_delete() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name, "Cleanup test"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Cleanup test",
+        ])
         .assert()
         .success();
 

@@ -36,7 +36,14 @@ fn test_two_pipelines_run_concurrently() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name1, "First concurrent pipeline"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name1),
+            "--input",
+            "prompt=First concurrent pipeline",
+        ])
         .assert()
         .success();
 
@@ -44,7 +51,14 @@ fn test_two_pipelines_run_concurrently() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name2, "Second concurrent pipeline"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name2),
+            "--input",
+            "prompt=Second concurrent pipeline",
+        ])
         .assert()
         .success();
 
@@ -88,7 +102,14 @@ fn test_three_pipelines_run_concurrently() {
         Command::cargo_bin("oj")
             .unwrap()
             .current_dir(temp.path())
-            .args(["run", "build", name, "Multi-concurrent pipeline"])
+            .args([
+                "run",
+                "build",
+                "--input",
+                &format!("name={}", name),
+                "--input",
+                "prompt=Multi-concurrent pipeline",
+            ])
             .assert()
             .success();
     }
@@ -123,8 +144,10 @@ fn test_pipelines_have_isolated_workspaces() {
         .args([
             "run",
             "build",
-            &name1,
-            "First unique prompt for isolation test",
+            "--input",
+            &format!("name={}", name1),
+            "--input",
+            "prompt=First unique prompt for isolation test",
         ])
         .assert()
         .success();
@@ -135,8 +158,10 @@ fn test_pipelines_have_isolated_workspaces() {
         .args([
             "run",
             "build",
-            &name2,
-            "Second unique prompt for isolation test",
+            "--input",
+            &format!("name={}", name2),
+            "--input",
+            "prompt=Second unique prompt for isolation test",
         ])
         .assert()
         .success();
@@ -196,40 +221,40 @@ fn test_pipelines_have_isolated_state_files() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name1, "State isolation test A"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name1),
+            "--input",
+            "prompt=State isolation test A",
+        ])
         .assert()
         .success();
 
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name2, "State isolation test B"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name2),
+            "--input",
+            "prompt=State isolation test B",
+        ])
         .assert()
         .success();
 
-    // Verify separate state files exist
-    let state1 = temp
-        .path()
-        .join(format!(".build/operations/pipelines/{}.json", pipeline_id1));
-    let state2 = temp
-        .path()
-        .join(format!(".build/operations/pipelines/{}.json", pipeline_id2));
-
-    assert!(state1.exists(), "First pipeline state should exist");
-    assert!(state2.exists(), "Second pipeline state should exist");
-
-    // Verify state files contain correct pipeline IDs
-    let content1 = fs::read_to_string(&state1).unwrap();
-    let content2 = fs::read_to_string(&state2).unwrap();
-
-    assert!(
-        content1.contains(&pipeline_id1),
-        "First state should reference first pipeline"
-    );
-    assert!(
-        content2.contains(&pipeline_id2),
-        "Second state should reference second pipeline"
-    );
+    // Verify both pipelines exist via CLI
+    Command::cargo_bin("oj")
+        .unwrap()
+        .current_dir(temp.path())
+        .args(["pipeline", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(&pipeline_id1))
+        .stdout(predicate::str::contains(&pipeline_id2));
 }
 
 #[test]
@@ -249,14 +274,28 @@ fn test_done_signal_affects_correct_pipeline() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name1, "Signal test A"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name1),
+            "--input",
+            "prompt=Signal test A",
+        ])
         .assert()
         .success();
 
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name2, "Signal test B"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name2),
+            "--input",
+            "prompt=Signal test B",
+        ])
         .assert()
         .success();
 
@@ -273,13 +312,14 @@ fn test_done_signal_affects_correct_pipeline() {
 
     // Second pipeline should still be listed as active
     // (First pipeline might still be listed depending on state)
-    let state2 = temp
-        .path()
-        .join(format!(".build/operations/pipelines/{}.json", pipeline_id2));
-    assert!(
-        state2.exists(),
-        "Second pipeline state should still exist and be unchanged"
-    );
+    // Verify second pipeline still exists and is unchanged
+    Command::cargo_bin("oj")
+        .unwrap()
+        .current_dir(temp.path())
+        .args(["pipeline", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(&pipeline_id2));
 }
 
 #[test]
@@ -299,14 +339,28 @@ fn test_error_in_one_doesnt_affect_other() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name1, "Error test A"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name1),
+            "--input",
+            "prompt=Error test A",
+        ])
         .assert()
         .success();
 
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name2, "Error test B"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name2),
+            "--input",
+            "prompt=Error test B",
+        ])
         .assert()
         .success();
 
@@ -349,14 +403,28 @@ fn test_daemon_processes_multiple_pipelines() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name1, "Multi-pipeline daemon test A"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name1),
+            "--input",
+            "prompt=Multi-pipeline daemon test A",
+        ])
         .assert()
         .success();
 
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name2, "Multi-pipeline daemon test B"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name2),
+            "--input",
+            "prompt=Multi-pipeline daemon test B",
+        ])
         .assert()
         .success();
 
@@ -369,13 +437,13 @@ fn test_daemon_processes_multiple_pipelines() {
         .success()
         .stdout(predicate::str::contains("Running single daemon iteration"));
 
-    // Both state files should still exist
-    assert!(temp
-        .path()
-        .join(format!(".build/operations/pipelines/{}.json", pipeline_id1))
-        .exists());
-    assert!(temp
-        .path()
-        .join(format!(".build/operations/pipelines/{}.json", pipeline_id2))
-        .exists());
+    // Both pipelines should still exist
+    Command::cargo_bin("oj")
+        .unwrap()
+        .current_dir(temp.path())
+        .args(["pipeline", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(&pipeline_id1))
+        .stdout(predicate::str::contains(&pipeline_id2));
 }

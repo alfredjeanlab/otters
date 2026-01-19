@@ -75,19 +75,28 @@ pub enum Operation {
         data: Value,
         priority: i32,
     },
-    QueueTake {
+    QueueClaim {
         queue: QueueId,
         item_id: ItemId,
-        holder: HolderId,
+        claim_id: ClaimId,
+        visibility_timeout_secs: u64,
     },
     QueueComplete {
         queue: QueueId,
-        item_id: ItemId,
+        claim_id: ClaimId,
     },
     QueueFail {
         queue: QueueId,
-        item_id: ItemId,
-        error: String,
+        claim_id: ClaimId,
+        reason: String,
+    },
+    QueueRelease {
+        queue: QueueId,
+        claim_id: ClaimId,
+    },
+    QueueTick {
+        queue: QueueId,
+        tick_result_json: String,
     },
 
     // Coordination operations

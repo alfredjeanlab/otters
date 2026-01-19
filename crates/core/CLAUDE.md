@@ -2,14 +2,26 @@
 
 Core library for the Otter Jobs (oj) CLI tool.
 
+## Landing Checklist
+
+Before committing changes to core:
+- [ ] `cargo fmt --all -- --check`
+- [ ] `cargo clippy --all-targets --all-features -- -D warnings`
+- [ ] `cargo test -p otters-core`
+- [ ] No new `#[allow(dead_code)]` without justification
+- [ ] State machine changes have corresponding test coverage
+
 ## Architecture
 
-This crate follows a functional core / imperative shell architecture:
+Functional core / imperative shell:
 
-- **State machines** (`workspace.rs`, `session.rs`, `pipeline.rs`, `queue.rs`): Pure functions that compute state transitions and emit effects
-- **Adapters** (`adapters/`): I/O boundary implementations (tmux, git, wk)
-- **Storage** (`storage/`): JSON file persistence
-- **Engine** (`engine/`): Effect execution and workers
+- **State machines** (`workspace.rs`, `session.rs`, `pipeline.rs`, `queue.rs`): Pure transitions + effects
+- **adapters/**: External I/O (tmux, git, wk) — Fake implementations for all traits
+- **coordination/**: Distributed resources (locks, semaphores, guards) — Heartbeat-based staleness
+- **engine/**: Effect execution orchestration — Causal effect ordering
+- **events/**: Event routing and audit — Pattern-based subscriptions
+- **pipelines/**: Workflow state machines — Deterministic transitions
+- **storage/**: WAL persistence — Atomic writes
 
 ## Key Types
 
@@ -29,13 +41,3 @@ This crate follows a functional core / imperative shell architecture:
 ### Testing
 
 Use `FakeAdapters` for testing, which records all calls for verification.
-
-## Usage
-
-```rust
-use oj_core::{
-    Pipeline, Workspace, Session, Queue,
-    TmuxAdapter, GitAdapter, WkAdapter,
-    Clock, SystemClock,
-};
-```

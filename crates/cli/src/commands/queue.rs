@@ -4,11 +4,13 @@
 //! Queue commands
 
 use clap::Subcommand;
-use oj_core::queue::{Queue, QueueItem};
-use oj_core::storage::JsonStore;
+use oj_core::clock::SystemClock;
+use oj_core::storage::WalStore;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fmt;
+use std::path::Path;
+use std::time::Duration;
 
 #[derive(Subcommand)]
 pub enum QueueCommand {
@@ -29,19 +31,23 @@ pub enum QueueCommand {
         #[arg(long, default_value = "0")]
         priority: i32,
     },
-    /// Take the next item from a queue
+    /// Take the next item from a queue (claims it for processing)
     Take {
         /// Queue name
         #[arg(default_value = "merges")]
         name: String,
+        /// Visibility timeout in seconds (default: 300)
+        #[arg(long, default_value = "300")]
+        timeout: u64,
     },
-    /// Complete the current item
+    /// Complete a claimed item
     Complete {
         /// Queue name
         #[arg(default_value = "merges")]
         name: String,
-        /// Item ID to complete
-        id: String,
+        /// Claim ID to complete (returned by take command)
+        #[arg(long)]
+        claim_id: String,
     },
 }
 
@@ -57,7 +63,7 @@ struct QueueItemInfo {
     id: String,
     priority: i32,
     attempts: u32,
-    data: HashMap<String, String>,
+    data: BTreeMap<String, String>,
 }
 
 impl fmt::Display for QueueItemInfo {
@@ -86,13 +92,13 @@ pub async fn handle(command: QueueCommand) -> anyhow::Result<()> {
             data,
             priority,
         } => add_to_queue(name, data, priority).await,
-        QueueCommand::Take { name } => take_from_queue(name).await,
-        QueueCommand::Complete { name, id } => complete_item(name, id).await,
+        QueueCommand::Take { name, timeout } => take_from_queue(name, timeout).await,
+        QueueCommand::Complete { name, claim_id } => complete_item(name, claim_id).await,
     }
 }
 
 async fn list_queue(name: String) -> anyhow::Result<()> {
-    let store = JsonStore::open(".build/operations")?;
+    let store = WalStore::open_default(Path::new(".build/operations"))?;
 
     let queue = match store.load_queue(&name) {
         Ok(q) => q,
@@ -105,15 +111,17 @@ async fn list_queue(name: String) -> anyhow::Result<()> {
     println!("Queue: {}", name);
     println!();
 
-    if let Some(ref processing) = queue.processing {
-        println!("Currently processing:");
-        let info = QueueItemInfo {
-            id: processing.id.clone(),
-            priority: processing.priority,
-            attempts: processing.attempts,
-            data: processing.data.clone(),
-        };
-        println!("  {}", info);
+    if !queue.claimed.is_empty() {
+        println!("Currently claimed ({}):", queue.claimed.len());
+        for claimed in &queue.claimed {
+            let info = QueueItemInfo {
+                id: claimed.item.id.clone(),
+                priority: claimed.item.priority,
+                attempts: claimed.item.attempts,
+                data: claimed.item.data.clone(),
+            };
+            println!("  {} (claim: {})", info, claimed.claim_id);
+        }
         println!();
     }
 
@@ -148,22 +156,17 @@ async fn add_to_queue(
     data: Vec<(String, String)>,
     priority: i32,
 ) -> anyhow::Result<()> {
-    let store = JsonStore::open(".build/operations")?;
+    let mut store = WalStore::open_default(Path::new(".build/operations"))?;
 
-    let queue = store
-        .load_queue(&name)
-        .unwrap_or_else(|_| Queue::new(&name));
-
-    let data_map: HashMap<String, String> = data.into_iter().collect();
+    let data_map: BTreeMap<String, String> = data.into_iter().collect();
     let item_id = format!(
         "{}-{}",
         name,
         &uuid::Uuid::new_v4().simple().to_string()[..8]
     );
-    let item = QueueItem::with_priority(&item_id, data_map.clone(), priority);
 
-    let queue = queue.push(item);
-    store.save_queue(&name, &queue)?;
+    // Use granular queue_push operation (auto-creates queue if needed)
+    store.queue_push(&name, &item_id, data_map.clone(), priority, 3)?;
 
     println!("Added item '{}' to queue '{}'", item_id, name);
     for (k, v) in data_map {
@@ -173,40 +176,61 @@ async fn add_to_queue(
     Ok(())
 }
 
-async fn take_from_queue(name: String) -> anyhow::Result<()> {
-    let store = JsonStore::open(".build/operations")?;
+async fn take_from_queue(name: String, timeout_secs: u64) -> anyhow::Result<()> {
+    let mut store = WalStore::open_default(Path::new(".build/operations"))?;
+    let clock = SystemClock;
 
     let queue = store.load_queue(&name)?;
-    let (queue, item) = queue.take();
 
-    match item {
-        Some(item) => {
-            store.save_queue(&name, &queue)?;
-            println!("Took item '{}' from queue '{}'", item.id, name);
-            for (k, v) in &item.data {
-                println!("  {}={}", k, v);
-            }
+    if queue.items.is_empty() {
+        if !queue.claimed.is_empty() {
+            println!(
+                "Queue '{}' has {} item(s) currently claimed.",
+                name,
+                queue.claimed.len()
+            );
+        } else {
+            println!("Queue '{}' is empty.", name);
         }
-        None => {
-            if queue.is_processing() {
-                println!("Queue '{}' is currently processing an item.", name);
-            } else {
-                println!("Queue '{}' is empty.", name);
-            }
+        return Ok(());
+    }
+
+    // Get the first item's ID for the claim
+    let item_id = queue.items[0].id.clone();
+    let claim_id = format!("cli-{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
+
+    // Claim the item using the granular operation
+    let (new_queue, _effects) = queue.transition(
+        oj_core::queue::QueueEvent::Claim {
+            claim_id: claim_id.clone(),
+            visibility_timeout: Some(Duration::from_secs(timeout_secs)),
+        },
+        &clock,
+    );
+
+    // Persist the claim
+    store.queue_claim(&name, &item_id, &claim_id, timeout_secs)?;
+
+    // Find the claimed item to display
+    if let Some(claimed) = new_queue.claimed.iter().find(|c| c.claim_id == claim_id) {
+        println!("Claimed item '{}' from queue '{}'", claimed.item.id, name);
+        println!("Claim ID: {}", claim_id);
+        println!("Visibility timeout: {}s", timeout_secs);
+        for (k, v) in &claimed.item.data {
+            println!("  {}={}", k, v);
         }
     }
 
     Ok(())
 }
 
-async fn complete_item(name: String, id: String) -> anyhow::Result<()> {
-    let store = JsonStore::open(".build/operations")?;
+async fn complete_item(name: String, claim_id: String) -> anyhow::Result<()> {
+    let mut store = WalStore::open_default(Path::new(".build/operations"))?;
 
-    let queue = store.load_queue(&name)?;
-    let queue = queue.complete(&id);
-    store.save_queue(&name, &queue)?;
+    // Use granular queue_complete operation
+    store.queue_complete(&name, &claim_id)?;
 
-    println!("Completed item '{}' in queue '{}'", id, name);
+    println!("Completed claim '{}' in queue '{}'", claim_id, name);
 
     Ok(())
 }

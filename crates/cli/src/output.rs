@@ -13,6 +13,7 @@ pub enum OutputFormat {
 }
 
 /// Print output in the specified format
+#[allow(dead_code)] // API: generic output formatter for CLI commands
 pub fn print<T: Serialize + std::fmt::Display>(value: &T, format: OutputFormat) {
     match format {
         OutputFormat::Text => println!("{}", value),
@@ -25,6 +26,7 @@ pub fn print<T: Serialize + std::fmt::Display>(value: &T, format: OutputFormat) 
 }
 
 /// Print a list of items
+#[allow(dead_code)] // API: generic list output formatter for CLI commands
 pub fn print_list<T: Serialize + std::fmt::Display>(items: &[T], format: OutputFormat) {
     match format {
         OutputFormat::Text => {

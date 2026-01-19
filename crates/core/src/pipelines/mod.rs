@@ -1,10 +1,17 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
-//! Hardcoded pipeline implementations
+//! Pipeline implementations
+//!
+//! This module provides dynamic pipeline support from runbook definitions.
 
-pub mod bugfix;
-pub mod build;
+pub mod dynamic;
+
+// Re-export key dynamic pipeline types
+pub use dynamic::{
+    create_pipeline, get_dynamic_phase, is_dynamic_pipeline, set_dynamic_phase, ContextBuilder,
+    DynamicError, DynamicFailAction, DynamicPhaseConfig, DynamicPhaseNext, DynamicTaskConfig,
+};
 
 use crate::pipeline::Phase;
 use std::time::Duration;

@@ -1,6 +1,6 @@
 # Epic 5c: Code Quality & Metrics
 
-**Root Feature:** `oj-0846`
+**Root Feature:** `otters-b7fb`
 
 ## Overview
 

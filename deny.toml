@@ -1,3 +1,12 @@
+[graph]
+# Only check dependencies for platforms we support (excludes Windows)
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+]
+
 [advisories]
 version = 2
 
@@ -22,6 +31,7 @@ allow = [
     "Unicode-3.0",
     "Unlicense",
     "Zlib",  # OSI approved, FSF Free/Libre - used by foldhash (ratatui transitive dep)
+    "CDLA-Permissive-2.0",  # Linux Foundation data license - used by webpki-roots (CA cert data)
 ]
 
 [bans]
@@ -30,8 +40,8 @@ wildcards = "deny"
 
 # Allow duplicate versions for crates where upstream ecosystem hasn't converged
 skip = [
-    # windows-sys: different deps require different versions
-    { crate = "windows-sys" },
+    # getrandom: ring uses 0.2, uuid/proptest use 0.3
+    { crate = "getrandom" },
 ]
 
 [sources]

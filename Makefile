@@ -2,7 +2,7 @@
 
 SHELL := /bin/bash
 
-.PHONY: check install license outdated coverage spec lint-specs
+.PHONY: check install license outdated coverage spec lint-specs quality benchmark quality-compare quality-baseline lint lint-fix
 
 # Build and install oj to ~/.local/bin
 install:
@@ -41,3 +41,27 @@ lint-specs:
 	@shellcheck -x -S warning scripts/spec
 	@shellcheck -x -S warning scripts/init-worktree
 	@shellcheck -x -S warning tests/specs/bats/install.sh
+
+# Quality metrics
+quality:
+	@mkdir -p reports/quality
+	@./checks/quality/evaluate.sh | tee reports/quality/current.json
+
+benchmark:
+	@mkdir -p reports/quality
+	@./checks/quality/benchmark.sh | tee reports/quality/benchmarks.json
+
+quality-compare:
+	@./checks/quality/compare.sh reports/quality/baseline.json reports/quality/current.json
+
+quality-baseline:
+	@mkdir -p reports/quality
+	@./checks/quality/evaluate.sh > reports/quality/baseline.json
+	@echo "Baseline saved to reports/quality/baseline.json"
+
+# Lint checks
+lint:
+	./checks/lint.sh
+
+lint-fix:
+	./checks/lint.sh --fix

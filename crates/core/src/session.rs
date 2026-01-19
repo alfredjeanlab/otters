@@ -4,6 +4,18 @@
 //! Session state machine
 //!
 //! A session represents a tmux session running in a workspace.
+//!
+//! ## Heartbeat Tracking
+//!
+//! Session owns heartbeat state (`last_heartbeat`) for monitoring activity.
+//! This is persisted via the `SessionHeartbeat` WAL operation. Tasks check
+//! session liveness via `Session::idle_time()` for stuck detection.
+//!
+//! The flow is:
+//! 1. Engine detects activity (via `poll_sessions`)
+//! 2. Engine calls `process_heartbeat(session_id)` which persists to WAL
+//! 3. On tick, Engine queries `session.idle_time()` and passes to `TaskEvent::Tick`
+//! 4. Task uses `session_idle_time` to determine if stuck
 
 use crate::clock::Clock;
 use crate::effect::{Effect, Event};
@@ -53,6 +65,8 @@ pub struct Session {
     pub last_output_hash: Option<u64>,
     pub idle_threshold: Duration,
     pub created_at: Instant,
+    /// Last detected activity (heartbeat) for stuck detection
+    pub last_heartbeat: Option<Instant>,
 }
 
 impl Session {
@@ -72,6 +86,7 @@ impl Session {
             last_output_hash: None,
             idle_threshold,
             created_at: now,
+            last_heartbeat: None,
         }
     }
 
@@ -156,6 +171,26 @@ impl Session {
         }
     }
 
+    /// Record a heartbeat (activity detected)
+    pub fn record_heartbeat(&self, timestamp: Instant) -> Session {
+        Session {
+            last_heartbeat: Some(timestamp),
+            ..self.clone()
+        }
+    }
+
+    /// Time since last heartbeat (for stuck detection)
+    pub fn idle_time(&self, now: Instant) -> Option<Duration> {
+        self.last_heartbeat.map(|hb| now.duration_since(hb))
+    }
+
+    /// Check if session is idle beyond threshold (based on heartbeat)
+    pub fn is_idle_by_heartbeat(&self, now: Instant) -> bool {
+        self.idle_time(now)
+            .map(|idle| idle > self.idle_threshold)
+            .unwrap_or(false)
+    }
+
     fn with_state(&self, state: SessionState) -> Session {
         Session {
             state,
@@ -182,90 +217,5 @@ pub fn hash_output(output: &str) -> u64 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::clock::FakeClock;
-
-    #[test]
-    fn session_starts_in_starting_state() {
-        let clock = FakeClock::new();
-        let session = Session::new(
-            "sess-1",
-            WorkspaceId("ws-1".to_string()),
-            Duration::from_secs(60),
-            &clock,
-        );
-        assert!(matches!(session.state, SessionState::Starting));
-    }
-
-    #[test]
-    fn session_transitions_to_running() {
-        let clock = FakeClock::new();
-        let session = Session::new(
-            "sess-1",
-            WorkspaceId("ws-1".to_string()),
-            Duration::from_secs(60),
-            &clock,
-        );
-        let (session, effects) = session.mark_running(&clock);
-        assert!(matches!(session.state, SessionState::Running));
-        assert_eq!(effects.len(), 1);
-    }
-
-    #[test]
-    fn session_becomes_idle_after_threshold() {
-        let clock = FakeClock::new();
-        let session = Session::new(
-            "sess-1",
-            WorkspaceId("ws-1".to_string()),
-            Duration::from_secs(60),
-            &clock,
-        );
-        let (session, _) = session.mark_running(&clock);
-
-        // Advance past idle threshold
-        clock.advance(Duration::from_secs(120));
-
-        let (session, effects) = session.evaluate_heartbeat(None, None, &clock);
-        assert!(matches!(session.state, SessionState::Idle { .. }));
-        assert!(effects
-            .iter()
-            .any(|e| matches!(e, Effect::Emit(Event::SessionIdle { .. }))));
-    }
-
-    #[test]
-    fn session_recovers_from_idle_on_output() {
-        let clock = FakeClock::new();
-        let session = Session::new(
-            "sess-1",
-            WorkspaceId("ws-1".to_string()),
-            Duration::from_secs(60),
-            &clock,
-        );
-        let (session, _) = session.mark_running(&clock);
-
-        // Make it idle
-        clock.advance(Duration::from_secs(120));
-        let (session, _) = session.evaluate_heartbeat(None, None, &clock);
-        assert!(matches!(session.state, SessionState::Idle { .. }));
-
-        // New output arrives
-        let now = clock.now();
-        let (session, effects) = session.evaluate_heartbeat(Some(now), Some(12345), &clock);
-        assert!(matches!(session.state, SessionState::Running));
-        assert!(effects
-            .iter()
-            .any(|e| matches!(e, Effect::Emit(Event::SessionActive { .. }))));
-    }
-
-    #[test]
-    fn hash_output_produces_consistent_hashes() {
-        let output = "Hello, world!";
-        let hash1 = hash_output(output);
-        let hash2 = hash_output(output);
-        assert_eq!(hash1, hash2);
-
-        let hash3 = hash_output("Different output");
-        assert_ne!(hash1, hash3);
-    }
-}
+#[path = "session_tests.rs"]
+mod tests;

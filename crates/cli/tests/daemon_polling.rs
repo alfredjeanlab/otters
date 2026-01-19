@@ -55,7 +55,14 @@ fn test_daemon_once_with_pipeline() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &pipeline_name, "Test daemon polling"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", pipeline_name),
+            "--input",
+            "prompt=Test daemon polling",
+        ])
         .assert()
         .success();
 
@@ -153,7 +160,14 @@ fn test_daemon_detects_dead_sessions() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name, "Test dead session detection"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Test dead session detection",
+        ])
         .assert()
         .success();
 
@@ -182,10 +196,13 @@ fn test_daemon_detects_dead_sessions() {
 
     // The daemon should have processed the pipeline even though the session is dead
     // (exact behavior depends on implementation - this just ensures it doesn't crash)
-    let state_path = temp
-        .path()
-        .join(format!(".build/operations/pipelines/{}.json", pipeline_id));
-    assert!(state_path.exists(), "Pipeline state should still exist");
+    Command::cargo_bin("oj")
+        .unwrap()
+        .current_dir(temp.path())
+        .args(["pipeline", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(&pipeline_id));
 }
 
 #[test]
@@ -201,7 +218,14 @@ fn test_daemon_detects_completed_sessions() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name, "Test completed session detection"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Test completed session detection",
+        ])
         .assert()
         .success();
 
@@ -279,7 +303,14 @@ fn test_daemon_logs_pipeline_activity() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name, "Test activity logging"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Test activity logging",
+        ])
         .assert()
         .success();
 

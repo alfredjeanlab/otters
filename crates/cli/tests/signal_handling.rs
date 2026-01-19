@@ -42,7 +42,14 @@ fn test_done_with_env_var_signals_completion() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name, "Test signaling"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Test signaling",
+        ])
         .assert()
         .success();
 
@@ -72,7 +79,14 @@ fn test_done_with_error_fails_pipeline() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name, "Test error handling"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Test error handling",
+        ])
         .assert()
         .success();
 
@@ -115,7 +129,14 @@ fn test_checkpoint_saves_state() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name, "Test checkpointing"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Test checkpointing",
+        ])
         .assert()
         .success();
 
@@ -164,7 +185,14 @@ fn test_done_from_workspace_autodetects_pipeline() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name, "Test autodetection"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Test autodetection",
+        ])
         .assert()
         .success();
 
@@ -193,7 +221,14 @@ fn test_done_error_marks_failed() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name, "Test failure marking"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Test failure marking",
+        ])
         .assert()
         .success();
 
@@ -209,11 +244,14 @@ fn test_done_error_marks_failed() {
         .success()
         .stdout(predicate::str::contains("phase failed"));
 
-    // Verify state file still exists (exact state format depends on daemon processing)
-    let state_path = temp
-        .path()
-        .join(format!(".build/operations/pipelines/{}.json", pipeline_id));
-    assert!(state_path.exists(), "Pipeline state file should exist");
+    // Verify pipeline still exists via CLI
+    Command::cargo_bin("oj")
+        .unwrap()
+        .current_dir(temp.path())
+        .args(["pipeline", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(&pipeline_id));
 }
 
 #[test]
@@ -229,7 +267,14 @@ fn test_checkpoint_updates_heartbeat() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name, "Test heartbeat update"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Test heartbeat update",
+        ])
         .assert()
         .success();
 
@@ -248,11 +293,14 @@ fn test_checkpoint_updates_heartbeat() {
         .success()
         .stdout(predicate::str::contains("Checkpoint saved"));
 
-    // The checkpoint command should update last_activity in the pipeline state
-    let state_path = temp
-        .path()
-        .join(format!(".build/operations/pipelines/{}.json", pipeline_id));
-    assert!(state_path.exists(), "Pipeline state should exist");
+    // Verify pipeline still exists via CLI
+    Command::cargo_bin("oj")
+        .unwrap()
+        .current_dir(temp.path())
+        .args(["pipeline", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(&pipeline_id));
 }
 
 #[test]

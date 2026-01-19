@@ -7,9 +7,11 @@ use anyhow::bail;
 use clap::Subcommand;
 use oj_core::clock::SystemClock;
 use oj_core::pipeline::PipelineEvent;
-use oj_core::storage::JsonStore;
+use oj_core::pipeline::PipelineId;
+use oj_core::storage::WalStore;
 use serde::Serialize;
 use std::fmt;
+use std::path::Path;
 
 #[derive(Subcommand)]
 pub enum PipelineCommand {
@@ -59,7 +61,7 @@ pub async fn handle(command: PipelineCommand) -> anyhow::Result<()> {
 }
 
 async fn list_pipelines() -> anyhow::Result<()> {
-    let store = JsonStore::open(".build/operations")?;
+    let store = WalStore::open_default(Path::new(".build/operations"))?;
     let ids = store.list_pipelines()?;
 
     if ids.is_empty() {
@@ -73,8 +75,8 @@ async fn list_pipelines() -> anyhow::Result<()> {
     for id in ids {
         if let Ok(pipeline) = store.load_pipeline(&id) {
             let info = PipelineInfo {
-                id: pipeline.id.0,
-                name: pipeline.name,
+                id: pipeline.id.0.clone(),
+                name: pipeline.id.0,
                 kind: format!("{:?}", pipeline.kind).to_lowercase(),
                 phase: pipeline.phase.name().to_string(),
             };
@@ -86,8 +88,8 @@ async fn list_pipelines() -> anyhow::Result<()> {
 }
 
 async fn show_pipeline(name: String) -> anyhow::Result<()> {
-    let store = JsonStore::open(".build/operations")?;
-    let pipeline = store.load_pipeline(&name)?;
+    let store = WalStore::open_default(Path::new(".build/operations"))?;
+    let pipeline = store.load_pipeline(&PipelineId(name))?;
 
     println!("Pipeline: {}", pipeline.name);
     println!("ID: {}", pipeline.id.0);
@@ -116,8 +118,8 @@ async fn transition_pipeline(
     event: String,
     reason: Option<String>,
 ) -> anyhow::Result<()> {
-    let store = JsonStore::open(".build/operations")?;
-    let pipeline = store.load_pipeline(&name)?;
+    let mut store = WalStore::open_default(Path::new(".build/operations"))?;
+    let pipeline = store.load_pipeline(&PipelineId(name.clone()))?;
 
     let event = match event.as_str() {
         "complete" => PipelineEvent::PhaseComplete,

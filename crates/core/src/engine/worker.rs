@@ -7,7 +7,7 @@ use crate::adapters::RepoAdapter;
 use crate::effect::MergeStrategy;
 use crate::engine::executor::Adapters;
 use crate::events::{EventBus, EventPattern, EventReceiver, Subscription};
-use crate::storage::JsonStore;
+use crate::storage::{WalStore, WalStoreError};
 use std::path::Path;
 use thiserror::Error;
 use tokio::time::{sleep, Duration};
@@ -15,7 +15,7 @@ use tokio::time::{sleep, Duration};
 #[derive(Debug, Error)]
 pub enum WorkerError {
     #[error("storage error: {0}")]
-    Storage(#[from] crate::storage::StorageError),
+    Storage(#[from] WalStoreError),
     #[error("repo error: {0}")]
     Repo(#[from] crate::adapters::RepoError),
     #[error("merge conflict on branch: {0}")]
@@ -27,13 +27,13 @@ pub enum WorkerError {
 /// Worker that processes the merge queue
 pub struct MergeWorker<A: Adapters> {
     adapters: A,
-    store: JsonStore,
+    store: WalStore,
     queue_name: String,
     max_attempts: u32,
 }
 
 impl<A: Adapters> MergeWorker<A> {
-    pub fn new(adapters: A, store: JsonStore) -> Self {
+    pub fn new(adapters: A, store: WalStore) -> Self {
         Self {
             adapters,
             store,
@@ -43,16 +43,35 @@ impl<A: Adapters> MergeWorker<A> {
     }
 
     /// Run the worker once, processing a single item if available
-    pub async fn run_once(&self) -> Result<bool, WorkerError> {
+    pub async fn run_once(&mut self) -> Result<bool, WorkerError> {
         let queue = self.store.load_queue(&self.queue_name)?;
-        let (queue, item) = queue.take();
 
-        let Some(item) = item else {
+        if queue.items.is_empty() {
             return Ok(false); // Nothing to process
-        };
+        }
 
-        self.store.save_queue(&self.queue_name, &queue)?;
+        // Get the first item's ID and claim it
+        let item_id = queue.items[0].id.clone();
+        let claim_id = format!("merge-worker-{}", uuid::Uuid::new_v4());
+        let visibility_timeout_secs = 300; // 5 minutes
 
+        // Claim the item
+        self.store.queue_claim(
+            &self.queue_name,
+            &item_id,
+            &claim_id,
+            visibility_timeout_secs,
+        )?;
+
+        // Reload queue to get the claimed item
+        let queue = self.store.load_queue(&self.queue_name)?;
+        let claimed = queue
+            .claimed
+            .iter()
+            .find(|c| c.claim_id == claim_id)
+            .ok_or(WorkerError::MissingField("claimed item"))?;
+
+        let item = &claimed.item;
         let branch = item
             .data
             .get("branch")
@@ -63,19 +82,21 @@ impl<A: Adapters> MergeWorker<A> {
 
         match result {
             Ok(()) => {
-                let queue = queue.complete(&item.id);
-                self.store.save_queue(&self.queue_name, &queue)?;
+                self.store.queue_complete(&self.queue_name, &claim_id)?;
                 tracing::info!(branch = %branch, "merge completed successfully");
             }
             Err(e) => {
-                let queue = if item.attempts < self.max_attempts {
+                if item.attempts < self.max_attempts {
                     tracing::warn!(branch = %branch, attempts = item.attempts + 1, "merge failed, requeueing");
-                    queue.requeue(item.with_incremented_attempts())
+                    // Fail will requeue if under max_attempts
+                    self.store
+                        .queue_fail(&self.queue_name, &claim_id, &e.to_string())?;
                 } else {
                     tracing::error!(branch = %branch, error = %e, "merge failed permanently");
-                    queue.dead_letter(item, e.to_string())
-                };
-                self.store.save_queue(&self.queue_name, &queue)?;
+                    // Fail will dead-letter if at max_attempts
+                    self.store
+                        .queue_fail(&self.queue_name, &claim_id, &e.to_string())?;
+                }
             }
         }
 
@@ -118,7 +139,7 @@ impl<A: Adapters> MergeWorker<A> {
     }
 
     /// Run the worker continuously
-    pub async fn run(&self, poll_interval: Duration) -> Result<(), WorkerError> {
+    pub async fn run(&mut self, poll_interval: Duration) -> Result<(), WorkerError> {
         loop {
             match self.run_once().await {
                 Ok(true) => {
@@ -199,13 +220,14 @@ pub enum WakeReason {
 /// Worker that processes queue items, waking on events
 pub struct EventDrivenWorker<A: Adapters> {
     config: WorkerConfig,
+    #[allow(dead_code)] // Epic 8: Cron, Watchers & Scanners - worker adapters
     adapters: A,
-    store: JsonStore,
+    store: WalStore,
     event_rx: EventReceiver,
 }
 
 impl<A: Adapters> EventDrivenWorker<A> {
-    pub fn new(config: WorkerConfig, adapters: A, store: JsonStore, event_bus: &EventBus) -> Self {
+    pub fn new(config: WorkerConfig, adapters: A, store: WalStore, event_bus: &EventBus) -> Self {
         // Subscribe to wake-on events
         let subscription = Subscription::new(
             &config.id,
@@ -267,8 +289,6 @@ impl<A: Adapters> EventDrivenWorker<A> {
         F: Fn(&crate::queue::QueueItem) -> Fut + Send + Sync,
         Fut: std::future::Future<Output = Result<(), WorkerError>> + Send,
     {
-        use crate::clock::SystemClock;
-
         loop {
             let queue = self.store.load_queue(&self.config.queue_name)?;
 
@@ -276,35 +296,36 @@ impl<A: Adapters> EventDrivenWorker<A> {
                 break;
             }
 
-            // Claim an item
+            // Get the first item's ID and claim it
+            let item_id = queue.items[0].id.clone();
             let claim_id = format!("{}-{}", self.config.id, uuid::Uuid::new_v4());
-            let clock = SystemClock;
-            let (new_queue, _effects) = queue.transition(
-                crate::queue::QueueEvent::Claim {
-                    claim_id: claim_id.clone(),
-                    visibility_timeout: Some(self.config.visibility_timeout),
-                },
-                &clock,
-            );
-            self.store.save_queue(&self.config.queue_name, &new_queue)?;
+            let visibility_timeout_secs = self.config.visibility_timeout.as_secs();
+
+            // Claim the item using granular WAL operation
+            self.store.queue_claim(
+                &self.config.queue_name,
+                &item_id,
+                &claim_id,
+                visibility_timeout_secs,
+            )?;
+
+            // Reload queue to get the claimed item
+            let queue = self.store.load_queue(&self.config.queue_name)?;
 
             // Process the claimed item
-            if let Some(claimed) = new_queue.claimed.iter().find(|c| c.claim_id == claim_id) {
-                match process_fn(&claimed.item).await {
+            if let Some(claimed) = queue.claimed.iter().find(|c| c.claim_id == claim_id) {
+                let item = claimed.item.clone();
+                match process_fn(&item).await {
                     Ok(()) => {
-                        let (q, _) = new_queue
-                            .transition(crate::queue::QueueEvent::Complete { claim_id }, &clock);
-                        self.store.save_queue(&self.config.queue_name, &q)?;
+                        self.store
+                            .queue_complete(&self.config.queue_name, &claim_id)?;
                     }
                     Err(e) => {
-                        let (q, _) = new_queue.transition(
-                            crate::queue::QueueEvent::Fail {
-                                claim_id,
-                                reason: e.to_string(),
-                            },
-                            &clock,
-                        );
-                        self.store.save_queue(&self.config.queue_name, &q)?;
+                        self.store.queue_fail(
+                            &self.config.queue_name,
+                            &claim_id,
+                            &e.to_string(),
+                        )?;
                     }
                 }
             }
@@ -317,7 +338,7 @@ impl<A: Adapters> EventDrivenWorker<A> {
 /// Create an event-driven merge worker
 pub fn new_event_driven_merge_worker<A: Adapters>(
     adapters: A,
-    store: JsonStore,
+    store: WalStore,
     event_bus: &EventBus,
 ) -> EventDrivenWorker<A> {
     let config = WorkerConfig::new("merge-worker", "merges")
@@ -328,43 +349,5 @@ pub fn new_event_driven_merge_worker<A: Adapters>(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::adapters::FakeAdapters;
-    use crate::queue::{Queue, QueueItem};
-    use std::collections::HashMap;
-
-    #[tokio::test]
-    async fn worker_returns_false_when_queue_empty() {
-        let adapters = FakeAdapters::new();
-        let store = JsonStore::open_temp().unwrap();
-        store.save_queue("merges", &Queue::new("merges")).unwrap();
-
-        let worker = MergeWorker::new(adapters, store);
-        let result = worker.run_once().await.unwrap();
-
-        assert!(!result);
-    }
-
-    #[tokio::test]
-    async fn worker_processes_queue_items() {
-        let adapters = FakeAdapters::new();
-        let store = JsonStore::open_temp().unwrap();
-
-        let mut data = HashMap::new();
-        data.insert("branch".to_string(), "feature-x".to_string());
-        let item = QueueItem::new("item-1", data);
-
-        let queue = Queue::new("merges").push(item);
-        store.save_queue("merges", &queue).unwrap();
-
-        let worker = MergeWorker::new(adapters.clone(), store.clone());
-        let result = worker.run_once().await.unwrap();
-
-        assert!(result);
-
-        // Check queue is now empty
-        let queue = store.load_queue("merges").unwrap();
-        assert!(queue.is_empty());
-    }
-}
+#[path = "worker_tests.rs"]
+mod tests;

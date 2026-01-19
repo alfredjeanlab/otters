@@ -61,8 +61,8 @@ pub enum Effect {
 pub struct Checkpoint {
     pub pipeline_id: PipelineId,
     pub phase: String,
-    pub inputs: std::collections::HashMap<String, String>,
-    pub outputs: std::collections::HashMap<String, String>,
+    pub inputs: std::collections::BTreeMap<String, String>,
+    pub outputs: std::collections::BTreeMap<String, String>,
     pub created_at: Instant,
     pub sequence: u64,
 }
@@ -266,6 +266,138 @@ pub enum Event {
         pipeline_id: String,
         reason: String,
     },
+
+    // Strategy events
+    StrategyStarted {
+        id: String,
+        name: String,
+    },
+    StrategyAttemptStarted {
+        id: String,
+        attempt: String,
+        index: usize,
+    },
+    StrategyAttemptFailed {
+        id: String,
+        attempt: String,
+        reason: String,
+        rolling_back: bool,
+    },
+    StrategyRollbackComplete {
+        id: String,
+        attempt: String,
+    },
+    StrategySucceeded {
+        id: String,
+        attempt: String,
+    },
+    StrategyExhausted {
+        id: String,
+        #[serde(skip)]
+        action: crate::strategy::ExhaustAction,
+    },
+    StrategyFailed {
+        id: String,
+        reason: String,
+    },
+
+    // Cron events
+    CronEnabled {
+        id: String,
+    },
+    CronDisabled {
+        id: String,
+    },
+    CronTriggered {
+        id: String,
+    },
+    CronCompleted {
+        id: String,
+        run_count: u64,
+    },
+    CronFailed {
+        id: String,
+        error: String,
+    },
+
+    // Action events
+    ActionTriggered {
+        id: String,
+        source: String,
+    },
+    ActionCompleted {
+        id: String,
+    },
+    ActionFailed {
+        id: String,
+        error: String,
+    },
+    ActionReady {
+        id: String,
+    },
+    ActionRejected {
+        id: String,
+        source: String,
+        reason: String,
+    },
+
+    // Watcher events
+    WatcherTriggered {
+        id: String,
+        consecutive: u32,
+    },
+    WatcherResolved {
+        id: String,
+    },
+    WatcherEscalated {
+        id: String,
+    },
+    WatcherPaused {
+        id: String,
+    },
+    WatcherResumed {
+        id: String,
+    },
+
+    // Scanner events
+    ScannerStarted {
+        id: String,
+    },
+    ScannerFound {
+        id: String,
+        count: u32,
+    },
+    ScannerCleaned {
+        id: String,
+        count: u64,
+        total: u64,
+    },
+    ScannerFailed {
+        id: String,
+        error: String,
+    },
+    ScannerDeleteResource {
+        scanner_id: String,
+        resource_id: String,
+    },
+    ScannerReleaseResource {
+        scanner_id: String,
+        resource_id: String,
+    },
+    ScannerFailResource {
+        scanner_id: String,
+        resource_id: String,
+        reason: String,
+    },
+    ScannerDeadLetterResource {
+        scanner_id: String,
+        resource_id: String,
+    },
+    ScannerArchiveResource {
+        scanner_id: String,
+        resource_id: String,
+        destination: String,
+    },
 }
 
 impl Event {
@@ -332,6 +464,47 @@ impl Event {
             Event::GuardEvaluating { .. } => "guard:evaluating".to_string(),
             Event::GuardPassed { .. } => "guard:passed".to_string(),
             Event::GuardFailed { .. } => "guard:failed".to_string(),
+
+            // Strategy events
+            Event::StrategyStarted { .. } => "strategy:started".to_string(),
+            Event::StrategyAttemptStarted { .. } => "strategy:attempt:started".to_string(),
+            Event::StrategyAttemptFailed { .. } => "strategy:attempt:failed".to_string(),
+            Event::StrategyRollbackComplete { .. } => "strategy:rollback:complete".to_string(),
+            Event::StrategySucceeded { .. } => "strategy:succeeded".to_string(),
+            Event::StrategyExhausted { .. } => "strategy:exhausted".to_string(),
+            Event::StrategyFailed { .. } => "strategy:failed".to_string(),
+
+            // Cron events
+            Event::CronEnabled { .. } => "cron:enabled".to_string(),
+            Event::CronDisabled { .. } => "cron:disabled".to_string(),
+            Event::CronTriggered { .. } => "cron:triggered".to_string(),
+            Event::CronCompleted { .. } => "cron:completed".to_string(),
+            Event::CronFailed { .. } => "cron:failed".to_string(),
+
+            // Action events
+            Event::ActionTriggered { .. } => "action:triggered".to_string(),
+            Event::ActionCompleted { .. } => "action:completed".to_string(),
+            Event::ActionFailed { .. } => "action:failed".to_string(),
+            Event::ActionReady { .. } => "action:ready".to_string(),
+            Event::ActionRejected { .. } => "action:rejected".to_string(),
+
+            // Watcher events
+            Event::WatcherTriggered { .. } => "watcher:triggered".to_string(),
+            Event::WatcherResolved { .. } => "watcher:resolved".to_string(),
+            Event::WatcherEscalated { .. } => "watcher:escalated".to_string(),
+            Event::WatcherPaused { .. } => "watcher:paused".to_string(),
+            Event::WatcherResumed { .. } => "watcher:resumed".to_string(),
+
+            // Scanner events
+            Event::ScannerStarted { .. } => "scanner:started".to_string(),
+            Event::ScannerFound { .. } => "scanner:found".to_string(),
+            Event::ScannerCleaned { .. } => "scanner:cleaned".to_string(),
+            Event::ScannerFailed { .. } => "scanner:failed".to_string(),
+            Event::ScannerDeleteResource { .. } => "scanner:delete".to_string(),
+            Event::ScannerReleaseResource { .. } => "scanner:release".to_string(),
+            Event::ScannerFailResource { .. } => "scanner:fail".to_string(),
+            Event::ScannerDeadLetterResource { .. } => "scanner:deadletter".to_string(),
+            Event::ScannerArchiveResource { .. } => "scanner:archive".to_string(),
         }
     }
 }

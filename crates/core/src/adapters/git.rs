@@ -197,12 +197,5 @@ impl RepoAdapter for GitAdapter {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn git_adapter_default_repo_root() {
-        let adapter = GitAdapter::default();
-        assert_eq!(adapter.repo_root, PathBuf::from("."));
-    }
-}
+#[path = "git_tests.rs"]
+mod tests;

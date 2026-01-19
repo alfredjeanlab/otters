@@ -5,10 +5,11 @@
 
 use anyhow::bail;
 use clap::Subcommand;
-use oj_core::storage::JsonStore;
-use oj_core::workspace::{Workspace, WorkspaceState};
+use oj_core::storage::WalStore;
+use oj_core::workspace::{Workspace, WorkspaceId, WorkspaceState};
 use serde::Serialize;
 use std::fmt;
+use std::path::Path;
 use std::path::PathBuf;
 
 #[derive(Subcommand)]
@@ -66,7 +67,7 @@ pub async fn handle(command: WorkspaceCommand) -> anyhow::Result<()> {
 }
 
 async fn list_workspaces() -> anyhow::Result<()> {
-    let store = JsonStore::open(".build/operations")?;
+    let store = WalStore::open_default(Path::new(".build/operations"))?;
     let ids = store.list_workspaces()?;
 
     if ids.is_empty() {
@@ -101,7 +102,7 @@ async fn list_workspaces() -> anyhow::Result<()> {
 }
 
 async fn create_workspace(kind: String, name: String) -> anyhow::Result<()> {
-    let store = JsonStore::open(".build/operations")?;
+    let mut store = WalStore::open_default(Path::new(".build/operations"))?;
 
     let workspace_id = format!("{}-{}", kind, name);
     let workspace_path = PathBuf::from(format!(".worktrees/{}-{}", kind, name));
@@ -125,8 +126,8 @@ async fn create_workspace(kind: String, name: String) -> anyhow::Result<()> {
 }
 
 async fn show_workspace(name: String) -> anyhow::Result<()> {
-    let store = JsonStore::open(".build/operations")?;
-    let workspace = store.load_workspace(&name)?;
+    let store = WalStore::open_default(Path::new(".build/operations"))?;
+    let workspace = store.load_workspace(&WorkspaceId(name))?;
 
     println!("Workspace: {}", workspace.name);
     println!("ID: {}", workspace.id.0);
@@ -139,8 +140,8 @@ async fn show_workspace(name: String) -> anyhow::Result<()> {
 }
 
 async fn delete_workspace(name: String, force: bool) -> anyhow::Result<()> {
-    let store = JsonStore::open(".build/operations")?;
-    let workspace = store.load_workspace(&name)?;
+    let mut store = WalStore::open_default(Path::new(".build/operations"))?;
+    let workspace = store.load_workspace(&WorkspaceId(name.clone()))?;
 
     if matches!(workspace.state, WorkspaceState::Dirty) && !force {
         bail!(
@@ -149,7 +150,7 @@ async fn delete_workspace(name: String, force: bool) -> anyhow::Result<()> {
         );
     }
 
-    store.delete("workspaces", &name)?;
+    store.delete_workspace(&WorkspaceId(name.clone()))?;
     println!("Deleted workspace '{}'", name);
     println!();
     println!("To remove the git worktree:");

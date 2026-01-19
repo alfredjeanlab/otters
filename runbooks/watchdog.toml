@@ -1,0 +1,52 @@
+# Watchdog Runbook
+#
+# Agent idle detection with escalating response chain.
+# Monitors sessions for activity and triggers nudge → restart → escalate.
+
+# ------------------------------------------------------------------------------
+# Meta
+# ------------------------------------------------------------------------------
+
+[meta]
+name = "watchdog"
+description = "Agent idle detection with escalating responses"
+
+# ------------------------------------------------------------------------------
+# Actions
+# ------------------------------------------------------------------------------
+
+[action.nudge]
+cooldown = "30s"
+command = "send_to_session"
+args = { message = "Are you still working? Please respond with your current status." }
+
+[action.restart]
+cooldown = "5m"
+command = "restart_session"
+
+[action.escalate]
+cooldown = "1h"
+command = "notify"
+args = { level = "critical", message = "Agent unresponsive after restart" }
+
+# ------------------------------------------------------------------------------
+# Watchers
+# ------------------------------------------------------------------------------
+
+[watcher.agent-idle]
+source = { type = "session", pattern = "*" }
+condition = { type = "idle", threshold = "5m" }
+check_interval = "1m"
+
+[[watcher.agent-idle.response]]
+action = "nudge"
+
+[[watcher.agent-idle.response]]
+action = "restart"
+delay = "2m"
+requires_previous_failure = true
+
+[[watcher.agent-idle.response]]
+action = "escalate"
+delay = "5m"
+requires_previous_failure = true

@@ -1,0 +1,52 @@
+# Janitor Runbook
+#
+# Stale resource cleanup scanners.
+# Scans for orphaned locks, dead queue items, and old completed pipelines.
+
+# ------------------------------------------------------------------------------
+# Meta
+# ------------------------------------------------------------------------------
+
+[meta]
+name = "janitor"
+description = "Stale resource cleanup"
+
+# ------------------------------------------------------------------------------
+# Scanners
+# ------------------------------------------------------------------------------
+
+[scanner.stale-locks]
+source = { type = "locks" }
+condition = { type = "stale", threshold = "1h" }
+cleanup = { type = "release" }
+interval = "10m"
+
+[scanner.dead-queue-items]
+source = { type = "queue", name = "merges" }
+condition = { type = "exceeded_attempts", max = 3 }
+cleanup = { type = "dead_letter" }
+interval = "5m"
+
+[scanner.orphan-worktrees]
+source = { type = "worktrees" }
+condition = { type = "orphaned" }
+cleanup = { type = "delete" }
+interval = "30m"
+
+[scanner.old-completed-pipelines]
+source = { type = "pipelines" }
+condition = { type = "terminal_for", threshold = "24h" }
+cleanup = { type = "archive", destination = ".oj/archive" }
+interval = "1h"
+
+[scanner.stale-sessions]
+source = { type = "sessions" }
+condition = { type = "stale", threshold = "2h" }
+cleanup = { type = "delete" }
+interval = "15m"
+
+[scanner.dead-tasks]
+source = { type = "tasks" }
+condition = { type = "terminal_for", threshold = "12h" }
+cleanup = { type = "delete" }
+interval = "1h"

@@ -12,19 +12,24 @@ use oj_core::adapters::FakeAdapters;
 use oj_core::clock::FakeClock;
 use oj_core::engine::{Engine, ScheduledKind, Scheduler};
 use oj_core::pipeline::{Pipeline, PipelineEvent, PipelineId};
-use oj_core::storage::JsonStore;
+use oj_core::storage::WalStore;
 use oj_core::task::{Task, TaskEvent, TaskId, TaskState};
 use oj_core::workspace::{Workspace, WorkspaceId};
 use oj_core::{Clock, SessionAdapter};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
 fn make_engine() -> (Engine<FakeAdapters, FakeClock>, FakeAdapters, FakeClock) {
     let adapters = FakeAdapters::new();
-    let store = JsonStore::open_temp().unwrap();
+    let store = WalStore::open_temp().unwrap();
     let clock = FakeClock::new();
     let engine = Engine::new(adapters.clone(), store, clock.clone());
     (engine, adapters, clock)
+}
+
+fn make_test_pipeline(id: &str, name: &str) -> Pipeline {
+    Pipeline::new_dynamic(id, name, BTreeMap::new())
 }
 
 // =============================================================================
@@ -45,7 +50,7 @@ async fn engine_full_pipeline_lifecycle() {
     engine.add_workspace(workspace).unwrap();
 
     // Create pipeline with workspace
-    let pipeline = Pipeline::new_build("pipe-1", "test-pipeline", "Test prompt")
+    let pipeline = make_test_pipeline("pipe-1", "test-pipeline")
         .with_workspace(WorkspaceId("ws-test".to_string()));
     engine.add_pipeline(pipeline).unwrap();
 
@@ -67,7 +72,8 @@ async fn engine_full_pipeline_lifecycle() {
     let pipeline = engine
         .get_pipeline(&PipelineId("pipe-1".to_string()))
         .unwrap();
-    assert_eq!(pipeline.phase.name(), "plan");
+    // Dynamic pipelines go straight to done
+    assert_eq!(pipeline.phase.name(), "done");
 }
 
 #[tokio::test]
@@ -79,8 +85,8 @@ async fn engine_task_completion_cascades_to_pipeline() {
         Workspace::new_ready("ws-1", "test", PathBuf::from("/tmp/test"), "feature/test");
     engine.add_workspace(workspace).unwrap();
 
-    let pipeline = Pipeline::new_build("pipe-1", "test", "Test")
-        .with_workspace(WorkspaceId("ws-1".to_string()));
+    let pipeline =
+        make_test_pipeline("pipe-1", "test").with_workspace(WorkspaceId("ws-1".to_string()));
     engine.add_pipeline(pipeline).unwrap();
 
     // Create and assign a task
@@ -131,7 +137,7 @@ async fn engine_handles_session_dead_event() {
     engine.add_workspace(workspace).unwrap();
 
     // Create pipeline
-    let pipeline = Pipeline::new_build("pipe-1", "test", "Test");
+    let pipeline = make_test_pipeline("pipe-1", "test");
     engine.add_pipeline(pipeline).unwrap();
 
     // Create a running task
@@ -182,8 +188,8 @@ async fn engine_stuck_task_triggers_nudge() {
         Workspace::new_ready("ws-1", "test", PathBuf::from("/tmp/test"), "feature/test");
     engine.add_workspace(workspace).unwrap();
 
-    let pipeline = Pipeline::new_build("pipe-1", "test", "Test")
-        .with_workspace(WorkspaceId("ws-1".to_string()));
+    let pipeline =
+        make_test_pipeline("pipe-1", "test").with_workspace(WorkspaceId("ws-1".to_string()));
     engine.add_pipeline(pipeline).unwrap();
 
     // Create and start a task
@@ -218,8 +224,14 @@ async fn engine_stuck_task_triggers_nudge() {
     clock.advance(Duration::from_secs(150));
 
     // Tick the task to detect stuck state
+    // Pass session_idle_time to trigger stuck detection
     engine
-        .process_task_event(&TaskId("task-1".to_string()), TaskEvent::Tick)
+        .process_task_event(
+            &TaskId("task-1".to_string()),
+            TaskEvent::Tick {
+                session_idle_time: Some(Duration::from_secs(150)),
+            },
+        )
         .await
         .unwrap();
 
@@ -376,7 +388,7 @@ async fn engine_signal_done_completes_task() {
     engine.add_workspace(workspace).unwrap();
 
     // Create pipeline with workspace
-    let pipeline = Pipeline::new_build("pipe-1", "test", "Test")
+    let pipeline = make_test_pipeline("pipe-1", "test")
         .with_workspace(WorkspaceId("ws-1".to_string()))
         .with_current_task(TaskId("task-1".to_string()));
     engine.add_pipeline(pipeline).unwrap();
@@ -424,7 +436,7 @@ async fn engine_signal_done_with_error_fails_task() {
     engine.add_workspace(workspace).unwrap();
 
     // Create pipeline with workspace
-    let pipeline = Pipeline::new_build("pipe-1", "test", "Test")
+    let pipeline = make_test_pipeline("pipe-1", "test")
         .with_workspace(WorkspaceId("ws-1".to_string()))
         .with_current_task(TaskId("task-1".to_string()));
     engine.add_pipeline(pipeline).unwrap();

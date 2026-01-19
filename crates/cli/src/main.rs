@@ -6,15 +6,28 @@
 //! A CLI tool for managing automated workflows with Claude Code.
 
 use clap::{Parser, Subcommand};
+use clap_complete::Shell;
 
 mod adapters;
 mod commands;
+mod completions;
+mod error;
 mod output;
 
 #[derive(Parser)]
 #[command(name = "oj")]
-#[command(about = "Otter Jobs - Automated workflow management")]
+#[command(about = "Otter Jobs - Agentic development orchestration")]
+#[command(
+    long_about = "oj orchestrates AI-assisted development workflows, managing \
+                        workspaces, sessions, and pipelines for automated coding tasks."
+)]
 #[command(version)]
+#[command(after_help = "EXAMPLES:
+    oj run build --input name=auth --input prompt=\"Add authentication\"
+    oj run bugfix --input bug=123
+    oj pipeline list --active
+    oj workspace list
+    oj completions bash > ~/.local/share/bash-completion/completions/oj")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -26,11 +39,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Run a pipeline (build or bugfix)
-    Run {
-        #[command(subcommand)]
-        command: commands::run::RunCommand,
-    },
+    /// Run a pipeline from a runbook definition
+    Run(commands::run::RunCommand),
     /// Manage pipelines
     Pipeline {
         #[command(subcommand)]
@@ -61,6 +71,21 @@ enum Commands {
     Checkpoint,
     /// Run background daemon for polling and tick loops
     Daemon(commands::daemon::DaemonArgs),
+    /// Generate shell completions
+    #[command(after_help = "INSTALL:
+    # Bash
+    oj completions bash > ~/.local/share/bash-completion/completions/oj
+
+    # Zsh (add ~/.zfunc to fpath)
+    oj completions zsh > ~/.zfunc/_oj
+
+    # Fish
+    oj completions fish > ~/.config/fish/completions/oj.fish")]
+    Completions {
+        /// Shell to generate completions for
+        #[arg(value_enum)]
+        shell: Shell,
+    },
 }
 
 #[tokio::main]
@@ -76,7 +101,7 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Run { command } => commands::run::handle(command).await,
+        Commands::Run(command) => commands::run::handle(command).await,
         Commands::Pipeline { command } => commands::pipeline::handle(command).await,
         Commands::Workspace { command } => commands::workspace::handle(command).await,
         Commands::Session { command } => commands::session::handle(command).await,
@@ -84,5 +109,9 @@ async fn main() -> anyhow::Result<()> {
         Commands::Done { error } => commands::signal::handle_done(error).await,
         Commands::Checkpoint => commands::signal::handle_checkpoint().await,
         Commands::Daemon(args) => commands::daemon::handle(args).await,
+        Commands::Completions { shell } => {
+            completions::generate_completions::<Cli>(shell);
+            Ok(())
+        }
     }
 }

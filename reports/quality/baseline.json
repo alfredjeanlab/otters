@@ -1,0 +1,35 @@
+{
+  "timestamp": "2026-01-20T17:24:22Z",
+  "git_sha": "eda05c8",
+  "loc": {
+    "core": {"source": 11730, "test": 10076},
+    "cli": {"source": 1404, "test": 3208}
+  },
+  "file_stats": {
+    "core": {
+      "src": {"count": 52, "avg": 225, "max": 709, "over_limit": 1},
+      "tests": {"count": 39, "avg": 258, "max": 778, "over_limit": 0}
+    },
+    "cli": {
+      "src": {"count": 11, "avg": 127, "max": 281, "over_limit": 0},
+      "tests": {"count": 10, "avg": 320, "max": 582, "over_limit": 0}
+    }
+  },
+  "escape_hatches": {
+    "src": {
+      "unsafe": 0,
+      "unwrap": 37,
+      "expect": 0,
+      "allow_dead_code": 11
+    },
+    "tests": {
+      "unsafe": 0,
+      "unwrap": 515,
+      "expect": 20,
+      "allow_dead_code": 0
+    }
+  },
+  "tests": {
+    "count": 483
+  }
+}

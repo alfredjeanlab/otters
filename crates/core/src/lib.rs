@@ -20,10 +20,13 @@ pub mod config;
 pub mod coordination;
 pub mod events;
 pub mod id;
+pub mod limits;
 
 pub mod adapters;
 pub mod engine;
 pub mod pipelines;
+pub mod runbook;
+pub mod scheduling;
 pub mod storage;
 
 // State machines (order matters for dependencies)
@@ -31,6 +34,7 @@ pub mod effect;
 pub mod pipeline;
 pub mod queue;
 pub mod session;
+pub mod strategy;
 pub mod task;
 pub mod workspace;
 
@@ -38,6 +42,9 @@ pub mod workspace;
 pub use clock::{Clock, FakeClock, SystemClock};
 pub use effect::{Checkpoint, Effect, Event, MergeStrategy};
 pub use id::{IdGen, SequentialIdGen, UuidIdGen};
+pub use strategy::{
+    Attempt, ExhaustAction, Strategy, StrategyEffect, StrategyEvent, StrategyId, StrategyState,
+};
 pub use task::{Task, TaskEvent, TaskId, TaskState};
 
 // Re-export adapters
@@ -72,3 +79,15 @@ pub use coordination::{
     Semaphore, SemaphoreConfig, SemaphoreHolder, SemaphoreInput, StorableCoordinationState,
     StorableLock, StorableSemaphore,
 };
+
+// Re-export scheduling
+pub use scheduling::{
+    Action, ActionConfig, ActionEvent, ActionId, ActionState, CleanupAction, Cron, CronConfig,
+    CronEvent, CronId, CronState, ResourceInfo, Scanner, ScannerCondition, ScannerConfig,
+    ScannerEvent, ScannerId, ScannerSource, ScannerState, SchedulingManager, SchedulingStats,
+    SourceValue, Watcher, WatcherCondition, WatcherConfig, WatcherEvent, WatcherId,
+    WatcherResponse, WatcherSource, WatcherState,
+};
+
+// Re-export limits
+pub use limits::{ResourceLimits, ResourceMonitor, ResourceStatus, ResourceUsage, UsageLevel};

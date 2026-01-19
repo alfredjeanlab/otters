@@ -23,7 +23,7 @@ fn test_oj_help() {
     cmd.arg("--help")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Otter Jobs"));
+        .stdout(predicate::str::contains("oj orchestrates"));
 }
 
 #[test]
@@ -43,16 +43,26 @@ fn test_run_build_creates_pipeline_state() {
 
     let mut cmd = Command::cargo_bin("oj").unwrap();
     cmd.current_dir(temp.path())
-        .args(["run", "build", &name, "Build a test feature"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Build a test feature",
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("Started build pipeline"));
 
-    // Verify pipeline state file was created
-    assert!(temp
-        .path()
-        .join(format!(".build/operations/pipelines/build-{}.json", name))
-        .exists());
+    // Verify pipeline was created by listing it
+    Command::cargo_bin("oj")
+        .unwrap()
+        .current_dir(temp.path())
+        .args(["pipeline", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(format!("build-{}", name)));
 }
 
 #[test]
@@ -64,7 +74,14 @@ fn test_run_build_creates_workspace() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name, "Test workspace creation"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Test workspace creation",
+        ])
         .assert()
         .success();
 
@@ -84,7 +101,14 @@ fn test_run_build_generates_claude_md() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name, "Test CLAUDE.md generation"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Test CLAUDE.md generation",
+        ])
         .assert()
         .success();
 
@@ -109,19 +133,19 @@ fn test_run_bugfix_creates_pipeline() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "bugfix", &issue_id])
+        .args(["run", "bugfix", "--input", &format!("bug={}", issue_id)])
         .assert()
         .success()
         .stdout(predicate::str::contains("Started bugfix pipeline"));
 
-    // Verify pipeline state file
-    assert!(temp
-        .path()
-        .join(format!(
-            ".build/operations/pipelines/bugfix-{}.json",
-            issue_id
-        ))
-        .exists());
+    // Verify pipeline was created by listing it
+    Command::cargo_bin("oj")
+        .unwrap()
+        .current_dir(temp.path())
+        .args(["pipeline", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(format!("bugfix-{}", issue_id)));
 
     // Verify workspace
     assert!(temp
@@ -140,7 +164,14 @@ fn test_pipeline_list_shows_created_pipelines() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name, "Test listing"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Test listing",
+        ])
         .assert()
         .success();
 
@@ -164,7 +195,14 @@ fn test_daemon_once_completes() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name, "Test daemon"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Test daemon",
+        ])
         .assert()
         .success();
 
@@ -196,7 +234,14 @@ fn test_run_build_spawns_tmux_session() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name, "Test tmux session spawning"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Test tmux session spawning",
+        ])
         .assert()
         .success();
 
@@ -237,15 +282,25 @@ fn test_run_build_claudeless_receives_prompt() {
         .env("PATH", &path)
         .env("CLAUDELESS_SCENARIO", scenario.display().to_string())
         .env("CLAUDELESS_CAPTURE", capture_path.display().to_string())
-        .args(["run", "build", &name, "Test prompt capture"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Test prompt capture",
+        ])
         .assert()
         .success();
 
-    // Verify pipeline was created
-    assert!(temp
-        .path()
-        .join(format!(".build/operations/pipelines/{}.json", pipeline_id))
-        .exists());
+    // Verify pipeline was created by listing it
+    Command::cargo_bin("oj")
+        .unwrap()
+        .current_dir(temp.path())
+        .args(["pipeline", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(&pipeline_id));
 }
 
 #[test]
@@ -262,24 +317,25 @@ fn test_full_pipeline_lifecycle() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name, "Full lifecycle test"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Full lifecycle test",
+        ])
         .assert()
         .success();
 
-    // 2. Verify initial state
-    let state_path = temp
-        .path()
-        .join(format!(".build/operations/pipelines/{}.json", pipeline_id));
-    assert!(
-        state_path.exists(),
-        "Pipeline state should exist after creation"
-    );
-
-    let state_content = fs::read_to_string(&state_path).unwrap();
-    assert!(
-        state_content.contains("\"phase\":"),
-        "Pipeline state should have phase"
-    );
+    // 2. Verify initial state via pipeline show
+    Command::cargo_bin("oj")
+        .unwrap()
+        .current_dir(temp.path())
+        .args(["pipeline", "show", &pipeline_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Phase:"));
 
     // 3. Signal done from workspace
     let workspace_path = temp.path().join(format!(".worktrees/{}", pipeline_id));
@@ -317,7 +373,14 @@ fn test_build_pipeline_exists() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name, "Build pipeline existence check"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Build pipeline existence check",
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("Started build pipeline"));
@@ -336,7 +399,7 @@ fn test_bugfix_pipeline_exists() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "bugfix", &issue])
+        .args(["run", "bugfix", "--input", &format!("bug={}", issue)])
         .assert()
         .success()
         .stdout(predicate::str::contains("Started bugfix pipeline"));

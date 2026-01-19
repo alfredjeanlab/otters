@@ -1,6 +1,6 @@
 # Epic 5b Part 4: Manual Haiku Validation Runbook
 
-**Root Feature:** `oj-9376` (continuation)
+**Root Feature:** `otters-4a03`
 
 ## Overview
 

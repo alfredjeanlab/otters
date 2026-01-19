@@ -5,7 +5,7 @@
 
 use crate::adapters::{IssueAdapter, NotifyAdapter, RepoAdapter, SessionAdapter};
 use crate::effect::{Effect, LogLevel};
-use crate::storage::JsonStore;
+use crate::storage::WalStore;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -17,7 +17,7 @@ pub enum ExecutorError {
     #[error("issue error: {0}")]
     Issue(#[from] crate::adapters::IssueError),
     #[error("storage error: {0}")]
-    Storage(#[from] crate::storage::StorageError),
+    Storage(#[from] crate::storage::WalStoreError),
 }
 
 /// Adapters bundle for effect execution
@@ -36,11 +36,12 @@ pub trait Adapters: Clone + Send + Sync + 'static {
 /// Executes effects from state machines
 pub struct Executor<A: Adapters> {
     adapters: A,
-    store: JsonStore,
+    #[allow(dead_code)] // Epic 7: Storage & Durability - effect persistence
+    store: WalStore,
 }
 
 impl<A: Adapters> Executor<A> {
-    pub fn new(adapters: A, store: JsonStore) -> Self {
+    pub fn new(adapters: A, store: WalStore) -> Self {
         Self { adapters, store }
     }
 

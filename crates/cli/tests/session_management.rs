@@ -33,7 +33,14 @@ fn test_session_list_shows_active_sessions() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name, "Session list test"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Session list test",
+        ])
         .assert()
         .success();
 
@@ -85,14 +92,28 @@ fn test_session_list_multiple_sessions() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name1, "Multi session test A"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name1),
+            "--input",
+            "prompt=Multi session test A",
+        ])
         .assert()
         .success();
 
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name2, "Multi session test B"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name2),
+            "--input",
+            "prompt=Multi session test B",
+        ])
         .assert()
         .success();
 
@@ -120,7 +141,14 @@ fn test_session_show_displays_details() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name, "Session show test"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Session show test",
+        ])
         .assert()
         .success();
 
@@ -172,7 +200,14 @@ fn test_session_kill_terminates_session() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name, "Session kill test"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Session kill test",
+        ])
         .assert()
         .success();
 
@@ -210,7 +245,14 @@ fn test_session_kill_updates_pipeline_state() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name, "Kill state test"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Kill state test",
+        ])
         .assert()
         .success();
 
@@ -229,10 +271,13 @@ fn test_session_kill_updates_pipeline_state() {
         .success();
 
     // Pipeline state should still exist (killing session doesn't delete pipeline)
-    let state_path = temp
-        .path()
-        .join(format!(".build/operations/pipelines/{}.json", pipeline_id));
-    assert!(state_path.exists(), "Pipeline state should still exist");
+    Command::cargo_bin("oj")
+        .unwrap()
+        .current_dir(temp.path())
+        .args(["pipeline", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(&pipeline_id));
 }
 
 #[test]
@@ -248,7 +293,14 @@ fn test_session_nudge_sends_input() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name, "Session nudge test"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Session nudge test",
+        ])
         .assert()
         .success();
 
@@ -301,7 +353,14 @@ fn test_session_naming_convention() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name, "Naming convention test"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Naming convention test",
+        ])
         .assert()
         .success();
 
@@ -331,14 +390,28 @@ fn test_session_name_uniqueness() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name1, "Uniqueness test A"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name1),
+            "--input",
+            "prompt=Uniqueness test A",
+        ])
         .assert()
         .success();
 
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name2, "Uniqueness test B"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name2),
+            "--input",
+            "prompt=Uniqueness test B",
+        ])
         .assert()
         .success();
 
@@ -372,7 +445,14 @@ fn test_dead_session_detection() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name, "Dead session detection test"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Dead session detection test",
+        ])
         .assert()
         .success();
 
@@ -412,7 +492,14 @@ fn test_session_capture_pane() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name, "Capture pane test"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Capture pane test",
+        ])
         .assert()
         .success();
 
@@ -448,7 +535,14 @@ fn test_session_has_otter_env_vars() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name, "Environment vars test"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=Environment vars test",
+        ])
         .assert()
         .success();
 
@@ -471,7 +565,14 @@ fn test_session_cwd_is_workspace() {
     Command::cargo_bin("oj")
         .unwrap()
         .current_dir(temp.path())
-        .args(["run", "build", &name, "CWD test"])
+        .args([
+            "run",
+            "build",
+            "--input",
+            &format!("name={}", name),
+            "--input",
+            "prompt=CWD test",
+        ])
         .assert()
         .success();
 

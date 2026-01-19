@@ -12,7 +12,7 @@ use crate::task::TaskId;
 use crate::workspace::WorkspaceId;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::time::Instant;
 
 /// Unique identifier for a pipeline
@@ -40,8 +40,10 @@ impl From<&str> for PipelineId {
 /// The type of pipeline
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PipelineKind {
-    Build,
-    Bugfix,
+    /// Dynamic pipeline created from runbook definitions.
+    /// Aliases provide backward compatibility for persisted pipelines.
+    #[serde(alias = "Build", alias = "Bugfix")]
+    Dynamic,
 }
 
 /// The current phase of a pipeline
@@ -98,7 +100,7 @@ pub enum PipelineEvent {
     /// Phase completed successfully
     PhaseComplete,
     /// Phase completed with outputs
-    PhaseCompleteWithOutputs { outputs: HashMap<String, String> },
+    PhaseCompleteWithOutputs { outputs: BTreeMap<String, String> },
     /// Phase failed (non-recoverable)
     PhaseFailed { reason: String },
     /// Phase failed but can be recovered
@@ -127,8 +129,8 @@ pub struct Pipeline {
     pub kind: PipelineKind,
     pub name: String,
     pub phase: Phase,
-    pub inputs: HashMap<String, String>,
-    pub outputs: HashMap<String, String>,
+    pub inputs: BTreeMap<String, String>,
+    pub outputs: BTreeMap<String, String>,
     pub workspace_id: Option<WorkspaceId>,
     pub current_task_id: Option<TaskId>,
     pub created_at: DateTime<Utc>,
@@ -139,46 +141,22 @@ pub struct Pipeline {
 }
 
 impl Pipeline {
-    /// Create a new build pipeline
-    pub fn new_build(
+    /// Create a new dynamic pipeline.
+    ///
+    /// Dynamic pipelines are created from runbook definitions. The actual phases
+    /// are determined by the runbook metadata stored in outputs.
+    pub fn new_dynamic(
         id: impl Into<String>,
         name: impl Into<String>,
-        prompt: impl Into<String>,
+        inputs: BTreeMap<String, String>,
     ) -> Self {
-        let mut inputs = HashMap::new();
-        inputs.insert("prompt".to_string(), prompt.into());
-
         Self {
             id: PipelineId(id.into()),
-            kind: PipelineKind::Build,
+            kind: PipelineKind::Dynamic,
             name: name.into(),
             phase: Phase::Init,
             inputs,
-            outputs: HashMap::new(),
-            workspace_id: None,
-            current_task_id: None,
-            created_at: Utc::now(),
-            checkpoint_sequence: 0,
-            last_checkpoint_at: None,
-        }
-    }
-
-    /// Create a new bugfix pipeline
-    pub fn new_bugfix(
-        id: impl Into<String>,
-        name: impl Into<String>,
-        issue_id: impl Into<String>,
-    ) -> Self {
-        let mut inputs = HashMap::new();
-        inputs.insert("issue_id".to_string(), issue_id.into());
-
-        Self {
-            id: PipelineId(id.into()),
-            kind: PipelineKind::Bugfix,
-            name: name.into(),
-            phase: Phase::Init,
-            inputs,
-            outputs: HashMap::new(),
+            outputs: BTreeMap::new(),
             workspace_id: None,
             current_task_id: None,
             created_at: Utc::now(),
@@ -203,25 +181,13 @@ impl Pipeline {
         }
     }
 
-    /// Get the ordered phases for this pipeline kind
+    /// Get the ordered phases for this pipeline kind.
+    ///
+    /// For dynamic pipelines, this returns just Init and Done. The actual phase
+    /// sequence is determined by runbook metadata stored in outputs.
     fn phase_sequence(&self) -> Vec<Phase> {
         match self.kind {
-            PipelineKind::Build => vec![
-                Phase::Init,
-                Phase::Plan,
-                Phase::Decompose,
-                Phase::Execute,
-                Phase::Merge,
-                Phase::Done,
-            ],
-            PipelineKind::Bugfix => vec![
-                Phase::Init,
-                Phase::Fix,
-                Phase::Verify,
-                Phase::Merge,
-                Phase::Cleanup,
-                Phase::Done,
-            ],
+            PipelineKind::Dynamic => vec![Phase::Init, Phase::Done],
         }
     }
 
@@ -234,11 +200,20 @@ impl Pipeline {
             .cloned()
     }
 
-    /// Get the first working phase for this pipeline kind (after Init)
+    /// Get the first working phase for this pipeline kind (after Init).
+    ///
+    /// For dynamic pipelines, checks runbook metadata in outputs.
+    /// Defaults to Done if no runbook phase is set.
     fn first_working_phase(&self) -> Phase {
         match self.kind {
-            PipelineKind::Build => Phase::Plan,
-            PipelineKind::Bugfix => Phase::Fix,
+            PipelineKind::Dynamic => {
+                // Dynamic pipelines store their phase in outputs._runbook_phase
+                // The phase_from_name will be used after restore; here we default to Done
+                self.outputs
+                    .get("_runbook_phase")
+                    .and_then(|name| self.phase_from_name(name))
+                    .unwrap_or(Phase::Done)
+            }
         }
     }
 
@@ -325,7 +300,7 @@ impl Pipeline {
                     && !matches!(phase, Phase::Init | Phase::Blocked { .. }) =>
             {
                 let outputs = output.clone().map(|o| {
-                    let mut map = HashMap::new();
+                    let mut map = BTreeMap::new();
                     map.insert("task_output".to_string(), o);
                     map
                 });
@@ -405,7 +380,7 @@ impl Pipeline {
     /// Helper to advance to the next phase
     fn advance_to_next_phase(
         &self,
-        outputs: Option<HashMap<String, String>>,
+        outputs: Option<BTreeMap<String, String>>,
     ) -> (Pipeline, Vec<Effect>) {
         let mut pipeline = self.clone();
         if let Some(out) = outputs {
@@ -440,7 +415,9 @@ impl Pipeline {
 
     /// Restore pipeline from a checkpoint
     pub fn restore_from(checkpoint: Checkpoint, kind: PipelineKind) -> Pipeline {
+        // Parse phase from checkpoint, keeping legacy support for all phase names
         let phase = match checkpoint.phase.as_str() {
+            "init" => Phase::Init,
             "plan" => Phase::Plan,
             "decompose" => Phase::Decompose,
             "execute" => Phase::Execute,
@@ -448,10 +425,8 @@ impl Pipeline {
             "verify" => Phase::Verify,
             "merge" => Phase::Merge,
             "cleanup" => Phase::Cleanup,
-            _ => match kind {
-                PipelineKind::Build => Phase::Plan,
-                PipelineKind::Bugfix => Phase::Fix,
-            },
+            "done" => Phase::Done,
+            _ => Phase::Done,
         };
 
         Pipeline {
@@ -471,420 +446,5 @@ impl Pipeline {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::clock::FakeClock;
-
-    #[test]
-    fn build_pipeline_starts_in_init() {
-        let pipeline = Pipeline::new_build("p-1", "auth", "Add authentication");
-        assert_eq!(pipeline.phase, Phase::Init);
-        assert_eq!(pipeline.kind, PipelineKind::Build);
-    }
-
-    #[test]
-    fn build_pipeline_follows_correct_phase_order() {
-        let clock = FakeClock::new();
-        let pipeline = Pipeline::new_build("p-1", "auth", "Add authentication");
-
-        let (pipeline, _) = pipeline.transition(PipelineEvent::PhaseComplete, &clock);
-        assert_eq!(pipeline.phase, Phase::Plan);
-
-        let (pipeline, _) = pipeline.transition(PipelineEvent::PhaseComplete, &clock);
-        assert_eq!(pipeline.phase, Phase::Decompose);
-
-        let (pipeline, _) = pipeline.transition(PipelineEvent::PhaseComplete, &clock);
-        assert_eq!(pipeline.phase, Phase::Execute);
-
-        let (pipeline, _) = pipeline.transition(PipelineEvent::PhaseComplete, &clock);
-        assert_eq!(pipeline.phase, Phase::Merge);
-
-        let (pipeline, effects) = pipeline.transition(PipelineEvent::PhaseComplete, &clock);
-        assert_eq!(pipeline.phase, Phase::Done);
-        assert!(effects
-            .iter()
-            .any(|e| matches!(e, Effect::Emit(Event::PipelineComplete { .. }))));
-    }
-
-    #[test]
-    fn bugfix_pipeline_follows_correct_phase_order() {
-        let clock = FakeClock::new();
-        let pipeline = Pipeline::new_bugfix("p-1", "bugfix-42", "42");
-
-        let (pipeline, _) = pipeline.transition(PipelineEvent::PhaseComplete, &clock);
-        assert_eq!(pipeline.phase, Phase::Fix);
-
-        let (pipeline, _) = pipeline.transition(PipelineEvent::PhaseComplete, &clock);
-        assert_eq!(pipeline.phase, Phase::Verify);
-
-        let (pipeline, _) = pipeline.transition(PipelineEvent::PhaseComplete, &clock);
-        assert_eq!(pipeline.phase, Phase::Merge);
-
-        let (pipeline, _) = pipeline.transition(PipelineEvent::PhaseComplete, &clock);
-        assert_eq!(pipeline.phase, Phase::Cleanup);
-
-        let (pipeline, _) = pipeline.transition(PipelineEvent::PhaseComplete, &clock);
-        assert_eq!(pipeline.phase, Phase::Done);
-    }
-
-    #[test]
-    fn pipeline_can_fail_from_any_phase() {
-        let clock = FakeClock::new();
-        let pipeline = Pipeline::new_build("p-1", "auth", "Add authentication");
-
-        let (pipeline, _) = pipeline.transition(PipelineEvent::PhaseComplete, &clock);
-        assert_eq!(pipeline.phase, Phase::Plan);
-
-        let (pipeline, effects) = pipeline.transition(
-            PipelineEvent::PhaseFailed {
-                reason: "Tests failed".to_string(),
-            },
-            &clock,
-        );
-        assert!(matches!(pipeline.phase, Phase::Failed { .. }));
-        assert!(effects
-            .iter()
-            .any(|e| matches!(e, Effect::Emit(Event::PipelineFailed { .. }))));
-    }
-
-    #[test]
-    fn pipeline_emits_phase_events() {
-        let clock = FakeClock::new();
-        let pipeline = Pipeline::new_build("p-1", "auth", "Add authentication");
-        let (_, effects) = pipeline.transition(PipelineEvent::PhaseComplete, &clock);
-
-        assert!(effects.iter().any(|e| matches!(
-            e,
-            Effect::Emit(Event::PipelinePhase { phase, .. }) if phase == "plan"
-        )));
-    }
-
-    #[test]
-    fn pipeline_transition_with_outputs() {
-        let clock = FakeClock::new();
-        let pipeline = Pipeline::new_build("p-1", "auth", "Add authentication");
-
-        let mut outputs = HashMap::new();
-        outputs.insert("plan".to_string(), "detailed plan here".to_string());
-
-        let (pipeline, _) =
-            pipeline.transition(PipelineEvent::PhaseCompleteWithOutputs { outputs }, &clock);
-
-        assert_eq!(pipeline.phase, Phase::Plan);
-        assert_eq!(
-            pipeline.outputs.get("plan"),
-            Some(&"detailed plan here".to_string())
-        );
-    }
-
-    #[test]
-    fn pipeline_running_to_blocked() {
-        let clock = FakeClock::new();
-        let pipeline = Pipeline::new_build("p-1", "auth", "Add authentication");
-
-        let (pipeline, _) = pipeline.transition(PipelineEvent::PhaseComplete, &clock);
-
-        let (pipeline, effects) = pipeline.transition(
-            PipelineEvent::PhaseFailedRecoverable {
-                reason: "Need more context".to_string(),
-            },
-            &clock,
-        );
-
-        assert!(matches!(
-            &pipeline.phase,
-            Phase::Blocked { waiting_on, .. } if waiting_on == "Need more context"
-        ));
-        assert!(matches!(
-            &effects[0],
-            Effect::Emit(Event::PipelineBlocked { .. })
-        ));
-    }
-
-    #[test]
-    fn pipeline_blocked_to_running() {
-        let clock = FakeClock::new();
-        let pipeline = Pipeline::new_build("p-1", "auth", "Add authentication");
-
-        let (pipeline, _) = pipeline.transition(PipelineEvent::PhaseComplete, &clock);
-        let (pipeline, _) = pipeline.transition(
-            PipelineEvent::PhaseFailedRecoverable {
-                reason: "Need more context".to_string(),
-            },
-            &clock,
-        );
-
-        let (pipeline, effects) = pipeline.transition(PipelineEvent::Unblocked, &clock);
-
-        assert_eq!(pipeline.phase, Phase::Plan);
-        assert!(matches!(
-            &effects[0],
-            Effect::Emit(Event::PipelineResumed { .. })
-        ));
-    }
-
-    #[test]
-    fn pipeline_task_assignment() {
-        let clock = FakeClock::new();
-        let pipeline = Pipeline::new_build("p-1", "auth", "Add authentication");
-
-        let (pipeline, _) = pipeline.transition(PipelineEvent::PhaseComplete, &clock);
-
-        let (pipeline, effects) = pipeline.transition(
-            PipelineEvent::TaskAssigned {
-                task_id: TaskId("task-1".to_string()),
-            },
-            &clock,
-        );
-
-        assert_eq!(pipeline.current_task_id, Some(TaskId("task-1".to_string())));
-        assert!(effects.is_empty());
-    }
-
-    #[test]
-    fn pipeline_task_completion_advances_phase() {
-        let clock = FakeClock::new();
-        let pipeline = Pipeline::new_build("p-1", "auth", "Add authentication");
-
-        let (pipeline, _) = pipeline.transition(PipelineEvent::PhaseComplete, &clock);
-        assert_eq!(pipeline.phase, Phase::Plan);
-
-        let (pipeline, _) = pipeline.transition(
-            PipelineEvent::TaskAssigned {
-                task_id: TaskId("task-1".to_string()),
-            },
-            &clock,
-        );
-
-        let (pipeline, effects) = pipeline.transition(
-            PipelineEvent::TaskComplete {
-                task_id: TaskId("task-1".to_string()),
-                output: Some("plan output".to_string()),
-            },
-            &clock,
-        );
-
-        assert_eq!(pipeline.phase, Phase::Decompose);
-        assert!(pipeline.outputs.contains_key("task_output"));
-        assert!(matches!(
-            &effects[0],
-            Effect::Emit(Event::PipelinePhase { .. })
-        ));
-    }
-
-    #[test]
-    fn pipeline_checkpoint() {
-        let clock = FakeClock::new();
-        let pipeline = Pipeline::new_build("p-1", "auth", "Add authentication");
-
-        let (pipeline, _) = pipeline.transition(PipelineEvent::PhaseComplete, &clock);
-
-        let (pipeline, effects) = pipeline.transition(PipelineEvent::RequestCheckpoint, &clock);
-
-        assert_eq!(pipeline.checkpoint_sequence, 1);
-        assert!(pipeline.last_checkpoint_at.is_some());
-        assert!(matches!(
-            &effects[0],
-            Effect::SaveCheckpoint { checkpoint, .. } if checkpoint.sequence == 1
-        ));
-    }
-
-    #[test]
-    fn pipeline_checkpoint_increments_sequence() {
-        let clock = FakeClock::new();
-        let pipeline = Pipeline::new_build("p-1", "auth", "Add authentication");
-
-        let (pipeline, _) = pipeline.transition(PipelineEvent::RequestCheckpoint, &clock);
-        assert_eq!(pipeline.checkpoint_sequence, 1);
-
-        let (pipeline, _) = pipeline.transition(PipelineEvent::RequestCheckpoint, &clock);
-        assert_eq!(pipeline.checkpoint_sequence, 2);
-
-        let (pipeline, effects) = pipeline.transition(PipelineEvent::RequestCheckpoint, &clock);
-        assert_eq!(pipeline.checkpoint_sequence, 3);
-        assert!(matches!(
-            &effects[0],
-            Effect::SaveCheckpoint { checkpoint, .. } if checkpoint.sequence == 3
-        ));
-    }
-
-    #[test]
-    fn pipeline_restore_from_checkpoint() {
-        let clock = FakeClock::new();
-        let pipeline = Pipeline::new_build("p-1", "auth", "Add authentication");
-
-        // Move to Plan, take checkpoint
-        let (pipeline, _) = pipeline.transition(PipelineEvent::PhaseComplete, &clock);
-        let (pipeline, effects) = pipeline.transition(PipelineEvent::RequestCheckpoint, &clock);
-
-        let checkpoint = if let Effect::SaveCheckpoint { checkpoint, .. } = &effects[0] {
-            checkpoint.clone()
-        } else {
-            panic!("Expected SaveCheckpoint effect");
-        };
-
-        // Block it (recoverable failure)
-        let (pipeline, _) = pipeline.transition(
-            PipelineEvent::PhaseFailedRecoverable {
-                reason: "error".to_string(),
-            },
-            &clock,
-        );
-        assert!(matches!(pipeline.phase, Phase::Blocked { .. }));
-
-        // Restore from checkpoint
-        let (pipeline, effects) =
-            pipeline.transition(PipelineEvent::Restore { checkpoint }, &clock);
-
-        assert_eq!(pipeline.phase, Phase::Plan);
-        assert!(matches!(
-            &effects[0],
-            Effect::Emit(Event::PipelineRestored { from_sequence, .. }) if *from_sequence == 1
-        ));
-    }
-
-    use yare::parameterized;
-
-    #[parameterized(
-            build_init_to_plan = { PipelineKind::Build, "init", "plan" },
-            build_plan_to_decompose = { PipelineKind::Build, "plan", "decompose" },
-            build_decompose_to_execute = { PipelineKind::Build, "decompose", "execute" },
-            build_execute_to_merge = { PipelineKind::Build, "execute", "merge" },
-            build_merge_to_done = { PipelineKind::Build, "merge", "done" },
-            bugfix_init_to_fix = { PipelineKind::Bugfix, "init", "fix" },
-            bugfix_fix_to_verify = { PipelineKind::Bugfix, "fix", "verify" },
-            bugfix_verify_to_merge = { PipelineKind::Bugfix, "verify", "merge" },
-            bugfix_merge_to_cleanup = { PipelineKind::Bugfix, "merge", "cleanup" },
-            bugfix_cleanup_to_done = { PipelineKind::Bugfix, "cleanup", "done" },
-        )]
-    fn phase_progression(kind: PipelineKind, current: &str, expected_next: &str) {
-        let clock = FakeClock::new();
-
-        // Create the pipeline
-        let pipeline = match kind {
-            PipelineKind::Build => Pipeline::new_build("p-1", "test", "prompt"),
-            PipelineKind::Bugfix => Pipeline::new_bugfix("p-1", "test", "issue-1"),
-        };
-
-        // Transition to the current phase
-        let pipeline = transition_to_phase(pipeline, current, &clock);
-
-        // Complete current phase
-        let (pipeline, _) = pipeline.transition(PipelineEvent::PhaseComplete, &clock);
-
-        assert_eq!(pipeline.phase.name(), expected_next);
-    }
-
-    fn transition_to_phase(pipeline: Pipeline, target_phase: &str, clock: &FakeClock) -> Pipeline {
-        let mut pipeline = pipeline;
-        while pipeline.phase.name() != target_phase {
-            let (p, _) = pipeline.transition(PipelineEvent::PhaseComplete, clock);
-            pipeline = p;
-            if pipeline.phase.is_terminal() {
-                break;
-            }
-        }
-        pipeline
-    }
-
-    #[parameterized(
-            build_done_is_terminal = { PipelineKind::Build },
-            bugfix_done_is_terminal = { PipelineKind::Bugfix },
-        )]
-    fn done_is_terminal(kind: PipelineKind) {
-        let clock = FakeClock::new();
-
-        let pipeline = match kind {
-            PipelineKind::Build => Pipeline::new_build("p-1", "test", "prompt"),
-            PipelineKind::Bugfix => Pipeline::new_bugfix("p-1", "test", "issue-1"),
-        };
-
-        // Transition all the way to Done
-        let pipeline = transition_to_phase(pipeline, "done", &clock);
-        assert_eq!(pipeline.phase, Phase::Done);
-
-        // Try to transition further - should be no-op
-        let (pipeline, effects) = pipeline.transition(PipelineEvent::PhaseComplete, &clock);
-        assert_eq!(pipeline.phase, Phase::Done);
-        assert!(effects.is_empty());
-    }
-
-    #[parameterized(
-            from_plan = { "plan" },
-            from_decompose = { "decompose" },
-            from_execute = { "execute" },
-        )]
-    fn failure_from_any_phase(current: &str) {
-        let clock = FakeClock::new();
-        let pipeline = Pipeline::new_build("p-1", "test", "prompt");
-
-        // Transition to the target phase
-        let pipeline = transition_to_phase(pipeline, current, &clock);
-        assert_eq!(pipeline.phase.name(), current);
-
-        // Fail it
-        let (pipeline, effects) = pipeline.transition(
-            PipelineEvent::PhaseFailed {
-                reason: "Test failure".to_string(),
-            },
-            &clock,
-        );
-
-        assert!(matches!(pipeline.phase, Phase::Failed { .. }));
-        assert!(effects
-            .iter()
-            .any(|e| matches!(e, Effect::Emit(Event::PipelineFailed { .. }))));
-    }
-
-    #[parameterized(
-            checkpoint_at_init = { "init", 1 },
-            checkpoint_at_plan = { "plan", 1 },
-            checkpoint_at_execute = { "execute", 1 },
-        )]
-    fn checkpoint_at_phase(phase: &str, expected_sequence: u64) {
-        let clock = FakeClock::new();
-        let pipeline = Pipeline::new_build("p-1", "test", "prompt");
-
-        // Transition to target phase
-        let pipeline = transition_to_phase(pipeline, phase, &clock);
-
-        // Take a checkpoint
-        let (pipeline, effects) = pipeline.transition(PipelineEvent::RequestCheckpoint, &clock);
-
-        assert_eq!(pipeline.checkpoint_sequence, expected_sequence);
-        assert!(matches!(
-            &effects[0],
-            Effect::SaveCheckpoint { checkpoint, .. } if checkpoint.sequence == expected_sequence
-        ));
-    }
-
-    #[test]
-    fn pipeline_restore_from_creates_pipeline() {
-        let checkpoint = Checkpoint {
-            pipeline_id: PipelineId("p-1".to_string()),
-            phase: "execute".to_string(),
-            inputs: {
-                let mut m = HashMap::new();
-                m.insert("prompt".to_string(), "test".to_string());
-                m
-            },
-            outputs: {
-                let mut m = HashMap::new();
-                m.insert("plan".to_string(), "plan output".to_string());
-                m
-            },
-            created_at: std::time::Instant::now(),
-            sequence: 5,
-        };
-
-        let pipeline = Pipeline::restore_from(checkpoint, PipelineKind::Build);
-
-        assert_eq!(pipeline.id.0, "p-1");
-        assert_eq!(pipeline.phase, Phase::Execute);
-        assert_eq!(pipeline.checkpoint_sequence, 5);
-        assert_eq!(
-            pipeline.outputs.get("plan"),
-            Some(&"plan output".to_string())
-        );
-    }
-}
+#[path = "pipeline_tests.rs"]
+mod tests;

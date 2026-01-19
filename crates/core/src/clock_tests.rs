@@ -1,0 +1,29 @@
+use super::*;
+
+#[test]
+fn system_clock_returns_increasing_time() {
+    let clock = SystemClock;
+    let t1 = clock.now();
+    std::thread::sleep(Duration::from_millis(1));
+    let t2 = clock.now();
+    assert!(t2 > t1);
+}
+
+#[test]
+fn fake_clock_can_be_advanced() {
+    let clock = FakeClock::new();
+    let t1 = clock.now();
+    clock.advance(Duration::from_secs(60));
+    let t2 = clock.now();
+    assert!(t2.duration_since(t1) >= Duration::from_secs(60));
+}
+
+#[test]
+fn fake_clock_is_cloneable_and_shared() {
+    let clock1 = FakeClock::new();
+    let clock2 = clock1.clone();
+    let t1 = clock1.now();
+    clock2.advance(Duration::from_secs(30));
+    let t2 = clock1.now();
+    assert!(t2.duration_since(t1) >= Duration::from_secs(30));
+}
