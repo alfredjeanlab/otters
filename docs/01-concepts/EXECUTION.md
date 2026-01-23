@@ -3,81 +3,99 @@
 Two abstractions sit beneath runbooks, decoupling "what to run" from "where to run it."
 
 ```
-Runbook layer:    command → worker → pipeline → task
+Runbook layer:    command → worker → pipeline → agent
                                           │
 Execution layer:               workspace + session
 ```
 
 ## Workspace
 
-An **isolated context for work** - not necessarily code or git.
+An **isolated context for work** - typically a git worktree for code changes.
 
 A workspace provides:
 - **Identity**: Unique name for this work context
 - **Isolation**: Separate from other concurrent work
 - **Lifecycle**: Setup before work, teardown after
-- **Context**: Values tasks can reference (paths, connections, handles)
+- **Context**: Values tasks can reference (`{workspace}`, `{branch}`)
 
-### Workspace Types
+### Git Worktree
 
-| Type | Context | Use Case |
-|------|---------|----------|
-| `git-worktree` | `path`, `branch` | Code changes in isolated branch |
+The primary workspace type. Creates an isolated git worktree for each pipeline.
 
-### Git Worktree Implementation
+```toml
+[pipeline.build.defaults]
+workspace = ".worktrees/build-{name}"
+branch = "build-{name}"
+```
 
-Storage locations (in order of preference):
-1. **XDG state directory**: `~/.local/state/deps/tree/<name>/<repo>/`
-2. **Git directory fallback**: `.git/beads-worktrees/<name>/<repo>/`
+**Storage location**: `~/.local/state/oj/worktrees/<repo>/<name>/`
 
-XDG is preferred because it keeps `.git/` clean and survives `git clean` operations. Falls back to `.git/` when XDG is unavailable.
+Using XDG state directory keeps `.git/` clean and survives `git clean` operations.
 
-**Settings sync**: When creating a workspace, copy `.claude/settings.json` to `<tree>/.claude/settings.local.json`. This allows task-specific hook configuration while inheriting project defaults.
-
-> **Future Ideas:**
-> | `directory` | `path` | Local directory (no VCS) |
-> | `database` | `connection`, `schema` | Isolated DB schema |
-> | `browser` | `profile` | Browser automation |
-> | `k8s` | `namespace`, `context` | Kubernetes work |
-> | `container` | `container_id` | Docker container |
+**Settings sync**: When creating a workspace, `.claude/settings.json` is copied to `<workspace>/.claude/settings.local.json`. This allows agent-specific configuration while inheriting project defaults.
 
 ## Session
 
-An **execution environment for a task** - where the agent actually runs.
+An **execution environment for an agent** - where Claude actually runs.
 
 A session provides:
 - **Isolation**: Separate process/environment
-- **Monitoring**: Heartbeat detection for stuck tasks
+- **Monitoring**: Heartbeat detection for stuck agents
 - **Control**: Nudge, restart, or kill stuck sessions
 
 ### Session Properties
 
 | Property | Description |
 |----------|-------------|
-| `id` | Session identifier |
-| `cwd` | Working directory |
-| `env` | Environment variables |
+| `id` | Session identifier (tmux session name) |
+| `cwd` | Working directory (typically the workspace path) |
+| `env` | Environment variables passed to the agent |
 
-### Heartbeat
+### Heartbeat Detection
 
-How we detect if a session is alive depends on session type and what's running:
+Sessions track activity to detect stuck agents. The primary heartbeat method is **terminal output** - if a session produces no output for `idle_timeout`, it's considered stuck.
 
-| Context | Possible heartbeats |
-|---------|---------------------|
-| tmux + shell | Terminal output |
-| tmux + Claude | Output, API activity, tool calls, checkpoint writes |
-| Container | Process running, logs |
-| Browser | Page activity, network requests |
+```toml
+[agent.fix]
+heartbeat = "output"
+idle_timeout = "3m"
+on_stuck = ["nudge", "restart"]
+```
 
-The right heartbeat depends on the task. A shell script might emit regular output; Claude might be "thinking" silently before a burst of tool calls.
+When idle too long, recovery actions trigger in order: nudge → restart → escalate.
 
-When idle too long, recovery actions trigger: nudge → restart → escalate.
+**Why output-based heartbeat works**: Claude Code produces regular output during tool calls. Extended silence typically means the agent is stuck, not thinking. For agents that legitimately go quiet, increase `idle_timeout`.
+
+## Relationship to Runbooks
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Runbook                                                │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐ │
+│  │   Worker    │───►│  Pipeline   │───►│    Agent    │ │
+│  └─────────────┘    └─────────────┘    └─────────────┘ │
+└─────────────────────────────────────────────────────────┘
+                            │                   │
+                            ▼                   ▼
+┌─────────────────────────────────────────────────────────┐
+│  Execution                                              │
+│  ┌─────────────┐         ┌─────────────┐               │
+│  │  Workspace  │◄────────│   Session   │               │
+│  │ (git worktree)        │   (tmux)    │               │
+│  └─────────────┘         └─────────────┘               │
+└─────────────────────────────────────────────────────────┘
+```
+
+- **Pipeline** creates and owns a **Workspace**
+- **Agent** runs in a **Session** within that workspace
+- Session's `cwd` points to the workspace path
+- Multiple agents in a pipeline share the same workspace
 
 ## Summary
 
-| Concept | Abstracts | Current | Future |
-|---------|-----------|---------|--------|
-| **Workspace** | Isolated work context | Git worktree | DB schema, browser, k8s, etc. |
-| **Session** | Where agent runs | Tmux | Remote, container, cloud |
+| Concept | Purpose | Implementation |
+|---------|---------|----------------|
+| **Workspace** | Isolated work context | Git worktree |
+| **Session** | Where agent runs | Tmux session |
 
-These abstractions enable the same runbook to work across different environments.
+These abstractions enable the same runbook to work across different environments. The runbook defines *what* to do; the execution layer handles *where* and *how*.

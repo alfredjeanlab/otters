@@ -1,8 +1,0 @@
-name = "auto-done"
-
-[config.tool_execution]
-mode = "simulated"
-
-[[responses]]
-pattern = { type = "any" }
-response = "I'll help with that. Running oj done to signal completion."

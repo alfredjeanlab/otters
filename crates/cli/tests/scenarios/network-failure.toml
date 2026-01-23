@@ -1,6 +1,0 @@
-name = "network-failure"
-
-[[responses]]
-pattern = { type = "any" }
-response = ""
-failure = { type = "network_unreachable" }

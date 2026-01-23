@@ -40,7 +40,7 @@ otters/
 
 Before committing changes:
 
-- [ ] Run `./checks/lint.sh` (or `make lint`)
+- [ ] Run `./scripts/lint` (or `make lint`)
 - [ ] Run `make check` for full verification
   - `cargo fmt --all -- --check`
   - `cargo clippy --all-targets --all-features -- -D warnings`

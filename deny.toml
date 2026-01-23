@@ -40,8 +40,7 @@ wildcards = "deny"
 
 # Allow duplicate versions for crates where upstream ecosystem hasn't converged
 skip = [
-    # getrandom: ring uses 0.2, uuid/proptest use 0.3
-    { crate = "getrandom" },
+    # as needed
 ]
 
 [sources]

@@ -1,8 +1,7 @@
-.wok/
 .v0/
+.wok/
+.quench/
 target/
-.build/
-.worktrees/
 
 # Downloaded BATS testing libraries (run scripts/spec to auto-install)
 tests/specs/bats/bats-core/

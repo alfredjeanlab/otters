@@ -1,6 +1,0 @@
-name = "rate-limit"
-
-[[responses]]
-pattern = { type = "any" }
-response = ""
-failure = { type = "rate_limit", retry_after = 60 }

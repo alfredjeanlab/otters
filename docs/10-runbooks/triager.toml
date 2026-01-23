@@ -1,0 +1,60 @@
+# Triager Runbook
+#
+# Handles failed operations and escalations.
+# Monitors for failures and decides: retry, requeue, or escalate.
+
+# ------------------------------------------------------------------------------
+# Cron
+# ------------------------------------------------------------------------------
+
+[cron.triager]
+interval = "1m"
+monitors = ["failed_pipelines", "repeat_failures", "dead_queue", "stale_escalations"]
+
+# ------------------------------------------------------------------------------
+# Monitors
+# ------------------------------------------------------------------------------
+
+# Failed pipelines - retry once
+[monitor.failed_pipelines]
+source = "oj pipeline list --phase failed --json"
+condition = "test $(oj pipeline failure-count {name}) -lt 2"
+action = "oj pipeline resume {name}"
+
+# Repeated failures - escalate
+[monitor.repeat_failures]
+source = "oj pipeline list --phase failed --json"
+condition = "test $(oj pipeline failure-count {name}) -ge 2"
+response = ["mark_flaky", "escalate"]
+
+# Dead letter items - analyze and maybe requeue
+[monitor.dead_queue]
+source = "oj queue dead --json"
+condition = "test $(oj queue attempts {queue} {id}) -lt 5"
+action = "oj queue requeue {queue} {id}"
+
+# Stale escalations (no response in 4h)
+[monitor.stale_escalations]
+source = "oj escalation list --status open --json"
+condition = "test $(oj escalation age {id}) -gt 14400"
+action = "oj escalation bump {id}"
+
+# ------------------------------------------------------------------------------
+# Actions
+# ------------------------------------------------------------------------------
+
+[action.mark_flaky]
+run = """
+oj pipeline label {name} flaky
+wk label {epic} flaky
+"""
+cooldown = "1h"
+
+# ------------------------------------------------------------------------------
+# Events
+# ------------------------------------------------------------------------------
+
+[events]
+on_retry = "oj emit triager:retry --id {name}"
+on_escalate = "oj emit triager:escalate --id {name}"
+on_abandon = "oj emit triager:abandon --queue {queue} --id {id}"

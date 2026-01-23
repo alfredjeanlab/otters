@@ -2,35 +2,27 @@
 
 The `oj` command manages runbook execution.
 
-## Commands
+## Entrypoints
 
 ### oj run
 
-Execute user-facing commands defined in runbooks.
+Execute commands defined in runbooks.
 
 ```bash
-oj run <command> [args...] [flags...]
+oj run <command> [args...]
 oj run build auth "Add authentication"
-oj run build auth "Add authentication" --priority 1
-oj run build auth "Add authentication" -p 1
-oj run bugfix 42
+oj run build auth "Add auth" --priority 1
 ```
-
-Arguments follow the command's `args` specification:
-- Positional args in order
-- Flags by name (`--priority`) or alias (`-p`)
-- Variadic args consume remaining positionals
 
 ### oj worker
 
 Manage queue-driven daemons.
 
 ```bash
-oj worker list                    # List workers
-oj worker start <name>            # Start worker
-oj worker stop <name>             # Stop worker
-oj worker wake <name>             # Wake idle worker
-oj worker status <name>           # Check status
+oj worker list
+oj worker start <name>
+oj worker stop <name>
+oj worker wake <name>
 ```
 
 ### oj cron
@@ -38,10 +30,24 @@ oj worker status <name>           # Check status
 Manage time-driven daemons.
 
 ```bash
-oj cron list                      # List crons
-oj cron enable <name>             # Enable cron
-oj cron disable <name>            # Disable cron
-oj cron run <name>                # Run once now
+oj cron list
+oj cron enable <name>
+oj cron disable <name>
+oj cron run <name>              # Run once now
+```
+
+## Resources
+
+### oj pipeline
+
+Manage running pipelines.
+
+```bash
+oj pipeline list
+oj pipeline show <id>
+oj pipeline transition <id> <phase>
+oj pipeline resume <id>
+oj pipeline checkpoint <id>
 ```
 
 ### oj queue
@@ -49,48 +55,11 @@ oj cron run <name>                # Run once now
 Manage work queues.
 
 ```bash
-oj queue list <name>              # List queue items
-oj queue add <name> [data...]     # Enqueue item
-oj queue take <name>              # Take next item
-oj queue complete <name> <id>     # Mark complete
-oj queue requeue <name> <id>      # Put back
-oj queue dead <name> <id>         # Move to dead letter
-```
-
-### oj pipeline
-
-Manage running pipeline instances.
-
-```bash
-oj pipeline list                  # List running pipelines
-oj pipeline show <id>             # Pipeline state and details
-oj pipeline transition <id> <phase>   # Change phase
-oj pipeline resume <id>           # Resume paused pipeline
-oj pipeline checkpoint <id>       # Save progress
-oj pipeline error <id>            # Get last error
-```
-
-### oj lock
-
-Manage exclusive locks.
-
-```bash
-oj lock list                      # List locks
-oj lock acquire <name>            # Acquire lock
-oj lock release <name>            # Release lock
-oj lock force-release <name>      # Force release stale lock
-oj lock is-stale <name>           # Check if stale
-```
-
-### oj semaphore
-
-Manage limited concurrency.
-
-```bash
-oj semaphore list                 # List semaphores
-oj semaphore status <name>        # Show slots used/available
-oj semaphore acquire <name>       # Acquire slot
-oj semaphore release <name>       # Release slot
+oj queue list <name>
+oj queue add <name> [data...]
+oj queue take <name>
+oj queue complete <name> <id>
+oj queue requeue <name> <id>
 ```
 
 ### oj session
@@ -98,11 +67,11 @@ oj semaphore release <name>       # Release slot
 Manage execution sessions.
 
 ```bash
-oj session list                   # List active sessions
-oj session show <id>              # Session details
-oj session idle-time <id>         # Time since last activity
-oj session nudge <id>             # Send interrupt
-oj session kill <id>              # Terminate session
+oj session list
+oj session show <id>
+oj session idle-time <id>
+oj session nudge <id>
+oj session kill <id>
 ```
 
 ### oj workspace
@@ -110,20 +79,44 @@ oj session kill <id>              # Terminate session
 Manage isolated work contexts.
 
 ```bash
-oj workspace list                 # List workspaces
-oj workspace show <name>          # Workspace details
-oj workspace create <type> <name> # Create workspace
-oj workspace delete <name>        # Remove workspace
+oj workspace list
+oj workspace show <name>
+oj workspace create <name>
+oj workspace delete <name>
 ```
+
+### oj lock
+
+Manage exclusive locks.
+
+```bash
+oj lock list
+oj lock acquire <name>
+oj lock release <name>
+oj lock force-release <name>
+```
+
+### oj semaphore
+
+Manage limited concurrency.
+
+```bash
+oj semaphore list
+oj semaphore status <name>
+oj semaphore acquire <name>
+oj semaphore release <name>
+```
+
+## Events
 
 ### oj emit
 
-Publish events for observability and triggers.
+Publish events.
 
 ```bash
 oj emit <event> [--data key=val...]
 oj emit pipeline:complete --id build-auth
-oj emit bug:created --id 42
+oj emit build:queued --id auth
 ```
 
 ## Agent Signaling
@@ -131,11 +124,10 @@ oj emit bug:created --id 42
 Commands for agents to signal orchestrators:
 
 ```bash
-oj done                           # Signal success
-oj done --error "reason"          # Signal failure
-oj done --restart                 # Request fresh session
-oj checkpoint "message"           # Record progress
-oj confirm "action"               # Request approval (when OTTER_SAFE=true)
+oj done                       # Signal success
+oj done --error "reason"      # Signal failure
+oj done --restart             # Request fresh session
+oj checkpoint "message"       # Record progress
 ```
 
 ## Environment Variables
@@ -144,17 +136,15 @@ Runtime context passed to agents:
 
 | Variable | Purpose |
 |----------|---------|
-| `OTTER_TASK` | Current task identifier |
-| `OTTER_WORKSPACE` | Workspace name |
-| `OTTER_PHASE` | Current pipeline phase |
-| `OTTER_SAFE` | Enable confirmation prompts |
+| `OJ_PIPELINE` | Pipeline identifier |
+| `OJ_PHASE` | Current pipeline phase |
+| `OJ_WORKSPACE` | Workspace path |
 
 ## JSON Output
 
-Most list/show commands support `--json` for programmatic use:
+Most commands support `--json` for programmatic use:
 
 ```bash
 oj pipeline list --json
 oj queue list bugs --json
-oj session show abc123 --json
 ```

@@ -15,19 +15,17 @@ Emitted by the runtime:
 | `worker:started` | Worker daemon started |
 | `worker:idle` | Worker has no work |
 | `worker:stopped` | Worker daemon stopped |
-| `agent:stuck` | Agent idle too long |
+| `session:stuck` | Session idle too long |
 | `escalate` | Recovery actions exhausted, needs human |
 
 ## Runbook Events
 
 Runbooks can emit custom events. Convention uses `category:action` format.
 
-Example from `mergeq.toml`:
-
 | Event | When |
 |-------|------|
-| `merge:queued` | Branch added to merge queue |
-| `merge:complete` | Branch merged successfully |
+| `build:queued` | Build added to queue |
+| `build:complete` | Build merged successfully |
 | `merge:conflict` | Merge has unresolved conflicts |
 
 ## Emitting Events
@@ -36,9 +34,9 @@ Runbooks define events in their `[events]` section:
 
 ```toml
 [events]
-on_phase_change = "sp emit pipeline:phase --id {name} --phase {phase}"
-on_complete = "sp emit pipeline:complete --id {name}"
-on_fail = "sp emit pipeline:fail --id {name} --error '{error}'"
+on_phase_change = "oj emit pipeline:phase --id {name} --phase {phase}"
+on_complete = "oj emit pipeline:complete --id {name}"
+on_fail = "oj emit pipeline:fail --id {name} --error '{error}'"
 ```
 
 Event names are arbitrary strings. Convention uses `category:action` format.
@@ -52,18 +50,26 @@ Workers can wake on specific events instead of polling:
 [worker.bugfix]
 wake_on = ["bug:created", "bug:prioritized"]
 
-[worker.mergeq]
-wake_on = ["merge:queued"]
+[worker.builds]
+wake_on = ["build:queued"]
 ```
+
+### Wake Guards
+
+Guards can wait for events instead of polling:
+```toml
+[guard.after_merged]
+condition = "oj pipeline show {after} --phase | grep -q done"
+wake_on = ["pipeline:{after}:complete"]
+```
+
+When the event fires, the guard re-evaluates its condition immediately.
 
 ### Notifications
 
-Some events can trigger platform notifications (see [MACOS.md](MACOS.md)).
+Some events can trigger platform notifications:
 
-Examples:
-- `merge:queued` → "auth submitted for merge"
-- `merge:complete` → "auth merged"
-- `pipeline:started` → "auth implementation started"
+- `pipeline:complete` → "auth merged"
+- `escalate` → "build-auth needs attention"
 
-Which events become notifications is configurable - not every event should notify.
-Most are for observability and worker coordination only.
+Which events become notifications is configurable - not every event should notify. Most are for observability and coordination only.

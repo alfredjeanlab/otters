@@ -1,0 +1,65 @@
+# Watchdog Runbook
+#
+# Monitors active operations for stuck states.
+# Nudges, restarts, or escalates as needed.
+
+# ------------------------------------------------------------------------------
+# Cron
+# ------------------------------------------------------------------------------
+
+[cron.watchdog]
+interval = "30s"
+monitors = ["agent_idle", "phase_timeout", "orphan_session", "worker_health"]
+
+# ------------------------------------------------------------------------------
+# Monitors
+# ------------------------------------------------------------------------------
+
+# Agent session idle (no output)
+[monitor.agent_idle]
+source = "oj pipeline list --phase plan,decompose,execute --json"
+condition = "oj session idle-time {session} > 5m"
+response = ["nudge", "restart:2", "escalate"]
+
+# Phase timeout
+[monitor.phase_timeout]
+source = "oj pipeline list --active --json"
+condition = "oj pipeline phase-age {name} > 4h"
+response = ["restart", "escalate"]
+
+# Session died but pipeline not updated
+[monitor.orphan_session]
+source = "oj pipeline list --phase plan,decompose,execute --has-session --json"
+condition = "! oj session alive {session}"
+response = ["restart", "escalate"]
+
+# Worker unhealthy
+[monitor.worker_health]
+source = "oj worker list --json"
+condition = "! oj worker healthy {id}"
+action = "oj worker restart {id}"
+
+# ------------------------------------------------------------------------------
+# Actions
+# ------------------------------------------------------------------------------
+
+[action.nudge]
+run = "oj session nudge {session}"
+cooldown = "30s"
+
+[action.restart]
+run = """
+oj session kill {session}
+oj pipeline resume {name}
+"""
+cooldown = "5m"
+max_attempts = 2
+
+# ------------------------------------------------------------------------------
+# Events
+# ------------------------------------------------------------------------------
+
+[events]
+on_nudge = "oj emit watchdog:nudge --id {name}"
+on_restart = "oj emit watchdog:restart --id {name}"
+on_escalate = "oj emit watchdog:escalate --id {name}"

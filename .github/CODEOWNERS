@@ -1,6 +1,0 @@
-# Default owners for everything
-* @kestred
-
-# Core state machines require careful review
-/crates/core/src/*.rs @kestred
-/crates/core/src/engine/ @kestred

@@ -1,0 +1,71 @@
+# Janitor Runbook
+#
+# Periodic cleanup of stale resources.
+# Scans: worktrees, sessions, locks, queues.
+
+# ------------------------------------------------------------------------------
+# Cron
+# ------------------------------------------------------------------------------
+
+[cron.janitor]
+interval = "5m"
+monitors = ["stale_queues", "orphan_worktrees", "dead_sessions", "stale_locks", "old_pipelines", "old_logs"]
+
+# ------------------------------------------------------------------------------
+# Monitors
+# ------------------------------------------------------------------------------
+
+# Stale queue entries (branch deleted)
+[monitor.stale_queues]
+source = "oj queue list-all --status pending --json"
+condition = "! git ls-remote --heads origin {branch} | grep -q {branch}"
+action = "oj queue remove {queue} {id}"
+
+# Orphaned worktrees (no pipeline, branch merged)
+[monitor.orphan_worktrees]
+source = "git worktree list --porcelain"
+condition = """
+! oj pipeline exists --workspace {path} &&
+git diff --quiet {path} &&
+git branch -r --merged origin/main | grep -q {branch}
+"""
+action = "git worktree remove {path}"
+
+# Dead sessions
+[monitor.dead_sessions]
+source = "tmux list-sessions -F '#{session_name}' 2>/dev/null | grep '^oj-'"
+condition = "! oj pipeline exists --session {name}"
+action = "tmux kill-session -t {name}"
+
+# Stale locks
+[monitor.stale_locks]
+source = "oj lock list --json"
+condition = "oj lock is-stale {id}"
+action = "oj lock force-release {id}"
+
+# Old completed pipelines (archive after 7 days)
+[monitor.old_pipelines]
+source = "oj pipeline list --phase done --json"
+condition = "test $(oj pipeline age {name}) -gt 604800"
+action = "oj pipeline archive {name}"
+
+# Old logs
+[monitor.old_logs]
+source = "find .oj/logs -type f -mtime +30"
+action = "rm {path}"
+
+# ------------------------------------------------------------------------------
+# Safety
+# ------------------------------------------------------------------------------
+
+[safety]
+protected = [".", ".git", ".oj", "main", "master"]
+dry_run_first = true
+
+# ------------------------------------------------------------------------------
+# Events
+# ------------------------------------------------------------------------------
+
+[events]
+on_clean = "oj emit janitor:clean --type {monitor} --resource {id}"
+on_escalate = "oj emit janitor:escalate --message '{message}'"

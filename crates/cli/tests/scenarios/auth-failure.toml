@@ -1,6 +1,0 @@
-name = "auth-failure"
-
-[[responses]]
-pattern = { type = "any" }
-response = ""
-failure = { type = "auth_error", message = "API key expired or invalid" }

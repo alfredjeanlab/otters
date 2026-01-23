@@ -19,13 +19,12 @@ A runbook is a file that defines **entrypoints** (things that run) and the **bui
 │                                                             │
 │   queue ────► work items                                    │
 │   pipeline ─► phased execution                              │
-│   task ─────► single unit of work                           │
+│   agent ────► AI agent invocation                           │
 │   guard ────► pre/post conditions                           │
 │   strategy ─► fallback chain                                │
 │   lock ─────► exclusive access                              │
 │   semaphore ► limited concurrency                           │
-│   watcher ──► condition monitoring                          │
-│   scanner ──► resource cleanup                              │
+│   monitor ──► condition checking + response                 │
 │   action ───► named operations                              │
 └─────────────────────────────────────────────────────────────┘
                            │
@@ -54,9 +53,9 @@ User ─── oj run ───► Command ───► queues work ───►
                                                         ▼
                                                    processes items
                                                         │
-Timer ─── interval ───► Cron ───► runs watchers ───────►│
+Timer ─── interval ───► Cron ───► runs monitors ───────►│
                                                         ▼
-                                                   Pipeline/Task
+                                                   Pipeline/Agent
 ```
 
 ### Command
@@ -114,12 +113,12 @@ Lifecycle: `oj worker start bugfix`, `oj worker stop bugfix`, `oj worker wake bu
 
 ### Cron
 
-Time-driven daemon. Runs on schedule.
+Time-driven daemon. Runs monitors on schedule.
 
 ```toml
 [cron.watchdog]
 interval = "30s"
-watchers = ["agent_idle", "phase_timeout"]
+monitors = ["agent_idle", "phase_timeout", "stale_locks"]
 ```
 
 Lifecycle: `oj cron enable watchdog`, `oj cron disable watchdog`
@@ -163,7 +162,7 @@ next = "fix"
 
 [[pipeline.fix.phase]]
 name = "fix"
-task = "fix_task"
+agent = "fix"
 semaphore = "agents"
 post = ["tests_pass"]
 next = "merge"
@@ -171,8 +170,8 @@ on_fail = "escalate"
 ```
 
 Phases can:
-- Run scripts (`run = "..."`)
-- Invoke tasks (`task = "..."`)
+- Run shell commands (`run = "..."`)
+- Invoke agents (`agent = "..."`)
 - Apply strategies (`strategy = "..."`)
 - Require guards (`pre = [...]`, `post = [...]`)
 - Acquire locks (`lock = "..."`)
@@ -186,12 +185,12 @@ oj pipeline transition build-auth merge
 oj pipeline resume build-auth
 ```
 
-### Task
+### Agent
 
-Single unit of work - typically an agent invocation.
+An AI agent invocation - runs Claude in a monitored session.
 
 ```toml
-[task.fix_task]
+[agent.fix]
 command = "claude --print"
 prompt = "Fix the bug: {bug.description}"
 cwd = "{workspace}"
@@ -202,29 +201,22 @@ on_stuck = ["nudge", "restart"]
 on_timeout = "escalate"
 ```
 
-- **heartbeat**: How to detect liveness (`output`, `file:/path`, `process`)
-- **idle_timeout**: Max time without heartbeat
+- **heartbeat**: How to detect liveness (`output` for terminal activity)
+- **idle_timeout**: Max time without heartbeat before considered stuck
 - **on_stuck**: Recovery chain when idle
 
 ### Templates
 
-Tasks use templates for prompts and context files (CLAUDE.md). Templates support variable interpolation and loops.
+Agents use templates for prompts. Templates support variable interpolation.
 
 ```toml
-[task.execution]
+[agent.execution]
 prompt_file = "templates/execute.md"
-context_file = "CLAUDE.md"              # Generated in workspace
-context_template = "templates/claude.feature.md"
 ```
-
-Template engines with Rust support and loop constructs:
-- **Tera** - Jinja2-like syntax
-- **Handlebars** - Mustache-compatible
-- **MiniJinja** - Minimal Jinja2
 
 Example template (Jinja2-style):
 ```
-# Task: {{ task.name }}
+# {{ name }}
 
 ## Issues to Complete
 
@@ -238,25 +230,22 @@ Example template (Jinja2-style):
 - Signal completion with `./done`
 ```
 
-Templates receive context from the pipeline/task:
+Templates receive context from the pipeline/agent:
 - Pipeline inputs (`name`, `prompt`, etc.)
 - Workspace details (`workspace`, `branch`)
-- Output from source commands (JSON, or via supported parsers like `ls`, `git branch`)
-- Custom variables from task definition
+- Output from source commands
 
 ```toml
-[task.execution]
+[agent.execution]
 inputs = [
     { name = "issues", source = "wk list -l plan:{name} --json" },
     { name = "plan", source = "cat plans/{name}.md" },
-    { name = "files", source = "ls src/" },
-    { name = "branches", source = "git branch --list 'feature/*'" },
 ]
 ```
 
 ### Guard
 
-Condition that must be true before/after a phase.
+Shell condition that must be true before/after a phase. Exit code 0 means condition met.
 
 ```toml
 [guard.tests_pass]
@@ -274,13 +263,6 @@ Guards can wait for events instead of polling:
 [guard.after_merged]
 condition = "test -z '{after}' || oj pipeline show {after} --phase | grep -q merged"
 wake_on = ["pipeline:{after}:merged"]
-```
-
-```toml
-[[pipeline.build.phase]]
-name = "init"
-pre = ["after_merged"]
-# ...
 ```
 
 ### Strategy
@@ -305,7 +287,7 @@ rollback = "git rebase --abort; git reset --hard {checkpoint}"
 
 [[strategy.merge.attempt]]
 name = "agent-resolve"
-task = "conflict_resolution"
+agent = "conflict_resolution"
 timeout = "30m"
 rollback = "git reset --hard {checkpoint}"
 ```
@@ -342,44 +324,49 @@ on_orphan_work = "requeue"
 
 Used to limit concurrent agent sessions, API calls, etc.
 
-### Watcher
+### Monitor
 
-Condition checker for crons. Monitors resources and triggers responses.
+Checks a condition and triggers a response chain. Crons run monitors on schedule.
 
 ```toml
-[watcher.agent_idle]
+[monitor.agent_idle]
 source = "oj pipeline list --phase execute --json"
 condition = "oj session idle-time {session} > 5m"
 response = ["nudge", "restart:2", "escalate"]
 ```
 
-### Scanner
-
-Resource scanner for crons. Finds and cleans up stale resources.
-
 ```toml
-[scanner.stale_locks]
+[monitor.stale_locks]
 source = "oj lock list --json"
 condition = "oj lock is-stale {id}"
 action = "oj lock force-release {id}"
 ```
 
+Monitors unify two use cases:
+- **Watching**: Check condition, trigger response chain on match
+- **Scanning**: Find resources, clean up those matching condition
+
+The `source` provides items to check. The `condition` (shell command, exit 0 = match) filters them. Then either `response` (action chain with escalation) or `action` (direct shell command) handles matches.
+
 ### Action
 
-Named operation, used by watchers and decision rules.
+Named operation with cooldown enforcement.
 
 ```toml
 [action.nudge]
 run = "oj session nudge {session}"
 cooldown = "30s"
 
-[action.decide]
-rules = [
-    { if = "analysis == 'rate_limited'", then = "wait_retry", delay = "5m" },
-    { if = "failure_count < 2", then = "retry" },
-    { else = "escalate" }
-]
+[action.restart]
+run = """
+oj session kill {session}
+oj pipeline resume {name}
+"""
+cooldown = "5m"
+max_attempts = 2
 ```
+
+Actions are referenced by monitors and recovery chains.
 
 ## Recovery
 
@@ -405,7 +392,7 @@ Example chain: `["nudge", "restart:2", "escalate"]`
 
 ## Events
 
-Emitted for observability. Can wake workers.
+Emitted for observability. Can wake workers and guards.
 
 ```toml
 [events]
@@ -422,12 +409,9 @@ Each runbook file defines related primitives:
 
 | File | Defines | Description |
 |------|---------|-------------|
-| `build.toml` | command, worker, pipeline | Feature development: plan → decompose → execute → merge |
+| `build.toml` | command, worker, pipeline | Feature development: plan → execute → merge |
 | `bugfix.toml` | command, worker, pipeline | Bug fixing: pick bug → fix → verify → merge |
-| `loop.toml` | worker | Continuous issue resolution from queue |
-| `mergeq.toml` | worker, pipeline | Merge queue processor |
-| `janitor.toml` | cron, scanners | Cleanup: stale queues, worktrees, sessions |
-| `watchdog.toml` | cron, watchers | Stuck detection: nudge → restart → escalate |
-| `triager.toml` | cron, watchers, actions | Failure handling: analyze → decide → act |
+| `watchdog.toml` | cron, monitors, actions | Stuck detection: nudge → restart → escalate |
+| `janitor.toml` | cron, monitors | Cleanup: stale locks, worktrees, sessions |
 
 Primitives are referenced by name within a runbook. Cross-runbook references use `runbook.primitive` syntax.
