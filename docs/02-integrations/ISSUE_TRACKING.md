@@ -1,6 +1,6 @@
 # Issue Tracking
 
-How the issue tracker (`wk`) integrates with external systems.
+How the issue tracker (`wok`) integrates with external systems.
 
 ## Core Concepts
 
@@ -13,28 +13,28 @@ Issues are work items with:
 
 ## CLI Integration
 
-External systems interact via `wk` commands:
+External systems interact via `wok` commands:
 
 ```bash
 # Query
-wk list [-l label] [-s status] [--json]
-wk show <id> [--json]
-wk ready                    # Unblocked todo issues
+wok list [-l label] [-s status] [--json]
+wok show <id> [--json]
+wok ready                    # Unblocked todo issues
 
 # Lifecycle
-wk new <type> "title"       # Create issue
-wk start <id>               # Claim (todo → in_progress)
-wk done <id>                # Complete (in_progress → done)
-wk close <id>               # Close without completing
+wok new <type> "title"       # Create issue
+wok start <id>               # Claim (todo → in_progress)
+wok done <id>                # Complete (in_progress → done)
+wok close <id>               # Close without completing
 
 # Metadata
-wk label <id> <label>       # Add label
-wk unlabel <id> <label>     # Remove label
-wk note <id> "content"      # Add note
+wok label <id> <label>       # Add label
+wok unlabel <id> <label>     # Remove label
+wok note <id> "content"      # Add note
 
 # Dependencies
-wk dep <a> blocks <b>       # A blocks B
-wk dep <epic> contains <x>  # Epic contains sub-issue
+wok dep <a> blocks <b>       # A blocks B
+wok dep <epic> contains <x>  # Epic contains sub-issue
 ```
 
 JSON output enables programmatic integration.
@@ -59,24 +59,24 @@ Systems define their own label schemes for tracking and filtering.
 
 Issues feed work queues:
 
-```
-wk list -l bug -s todo --json
+```text
+wok list -l bug -s todo --json
     │
     ▼
 queue filters/orders
     │
     ▼
-worker claims (wk start)
+worker claims (wok start)
     │
     ▼
-worker completes (wk done)
+worker completes (wok done)
 ```
 
 ### Progress Tracking
 
 Large work decomposes into trackable issues:
 
-```
+```text
 epic created
     │
     ├── sub-issue 1 (done)
@@ -92,7 +92,7 @@ External systems verify state before proceeding:
 
 ```bash
 # All issues with label closed?
-wk list -l build:auth -s todo,in_progress --count
+wok list -l build:auth -s todo,in_progress --count
 # Returns 0 → safe to proceed
 ```
 
@@ -108,7 +108,7 @@ Issue changes can trigger external actions:
 Issues provide context for Claude Code:
 
 ```bash
-wk show 42 --json
+wok show 42 --json
 # → title, description, labels, notes, dependencies
 ```
 
@@ -128,8 +128,8 @@ But issue tracking is independent - it can integrate with any system that speaks
 
 | Integration | How |
 |-------------|-----|
-| **Query** | `wk list/show --json` |
-| **Lifecycle** | `wk start/done/close` |
-| **Labeling** | `wk label/unlabel` |
-| **Progress** | `wk note`, dependency tracking |
+| **Query** | `wok list/show --json` |
+| **Lifecycle** | `wok start/done/close` |
+| **Labeling** | `wok label/unlabel` |
+| **Progress** | `wok note`, dependency tracking |
 | **Verification** | Count open issues with filters |

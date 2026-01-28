@@ -1,0 +1,29 @@
+// SPDX-License-Identifier: BUSL-1.1
+// Copyright (c) 2026 Alfred Jean LLC
+
+// Allow panic!/unwrap/expect in test code
+#![cfg_attr(test, allow(clippy::panic))]
+#![cfg_attr(test, allow(clippy::unwrap_used))]
+#![cfg_attr(test, allow(clippy::expect_used))]
+// Enable coverage(off) attribute for excluding test infrastructure
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
+//! Adapters for external I/O
+
+pub mod notify;
+pub mod repo;
+pub mod session;
+pub mod traced;
+
+pub use notify::{NoOpNotifyAdapter, NotifyAdapter};
+pub use repo::{GitAdapter, NoOpRepoAdapter, RepoAdapter};
+pub use session::{NoOpSessionAdapter, SessionAdapter, TmuxAdapter};
+pub use traced::{TracedRepoAdapter, TracedSessionAdapter};
+
+// Test support - only compiled for tests or when explicitly requested
+#[cfg(any(test, feature = "test-support"))]
+pub use notify::{FakeNotifyAdapter, NotifyCall};
+#[cfg(any(test, feature = "test-support"))]
+pub use repo::{FakeRepoAdapter, FakeWorktree, RepoCall};
+#[cfg(any(test, feature = "test-support"))]
+pub use session::{FakeSession, FakeSessionAdapter, SessionCall};

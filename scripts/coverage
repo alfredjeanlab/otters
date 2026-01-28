@@ -1,0 +1,16 @@
+#!/bin/bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+
+cd "$ROOT_DIR"
+
+# Generate coverage report including integration tests
+cargo llvm-cov \
+    --workspace \
+    --all-features \
+    --html \
+    --output-dir coverage/
+
+echo "Coverage report: coverage/html/index.html"

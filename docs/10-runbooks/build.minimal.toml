@@ -1,0 +1,46 @@
+# Build Runbook (Minimal)
+#
+# Phases execute sequentially. Last phase ends the pipeline.
+
+[command.build]
+args = "<name> <prompt>"
+run = { pipeline = "build" }
+
+[pipeline.build]
+inputs = ["name", "prompt"]
+
+[[pipeline.build.phase]]
+name = "init"
+run = "echo 'Starting build: {name}'"
+
+[[pipeline.build.phase]]
+name = "plan"
+run = { agent = "planning" }
+
+[[pipeline.build.phase]]
+name = "execute"
+run = { agent = "execution" }
+
+[[pipeline.build.phase]]
+name = "merge"
+run = "git fetch origin main && git rebase origin/main && git push"
+
+[[pipeline.build.phase]]
+name = "done"
+run = "echo 'Build complete: {name}'"
+
+[agent.planning]
+run = "claude --print --model haiku"
+prompt = "Create a plan for: {prompt}"
+
+[agent.execution]
+run = "claude --print --model haiku"
+prompt = "Execute the plan in plans/{name}.md"
+
+[pipeline.build.events]
+on_phase = "echo '{name} -> {phase}' >> .oj/build.log"
+on_complete = "echo '{name} complete' >> .oj/build.log"
+on_fail = "echo '{name} failed: {error}' >> .oj/build.log"
+# on_phase = "oj emit pipeline:phase --id {name} --phase {phase}"
+# on_complete = "oj emit pipeline:complete --id {name}"
+# on_fail = "oj emit pipeline:fail --id {name} --error '{error}'"

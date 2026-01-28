@@ -18,11 +18,11 @@ docs/
 │   └── MACOS.md        # macOS-specific setup
 │
 ├── 04-architecture/    # Implementation
-│   ├── 01-overview.md  # Functional core, layers, key decisions
+│   ├── 00-overview.md  # Functional core, layers, key decisions
 │   ├── 02-effects.md   # Effect types
 │   ├── 03-coordination.md  # Lock, Semaphore, Guard
 │   ├── 04-storage.md   # WAL persistence
-│   └── 05-adapters.md  # tmux, git, wk adapters
+│   └── 05-adapters.md  # tmux, git, wok adapters
 │
 └── 10-runbooks/        # Example configurations
     ├── build.toml      # Feature development pipeline

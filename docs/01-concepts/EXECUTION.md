@@ -2,7 +2,7 @@
 
 Two abstractions sit beneath runbooks, decoupling "what to run" from "where to run it."
 
-```
+```text
 Runbook layer:    command → worker → pipeline → agent
                                           │
 Execution layer:               workspace + session
@@ -28,9 +28,9 @@ workspace = ".worktrees/build-{name}"
 branch = "build-{name}"
 ```
 
-**Storage location**: `~/.local/state/oj/worktrees/<repo>/<name>/`
+**Storage location**: `~/.local/state/oj/projects/<project-hash>/workspaces/<name>/`
 
-Using XDG state directory keeps `.git/` clean and survives `git clean` operations.
+Using XDG state directory keeps the project directory clean and survives `git clean` operations.
 
 **Settings sync**: When creating a workspace, `.claude/settings.json` is copied to `<workspace>/.claude/settings.local.json`. This allows agent-specific configuration while inheriting project defaults.
 
@@ -51,38 +51,53 @@ A session provides:
 | `cwd` | Working directory (typically the workspace path) |
 | `env` | Environment variables passed to the agent |
 
-### Heartbeat Detection
+### Session State Detection
 
-Sessions track activity to detect stuck agents. The primary heartbeat method is **terminal output** - if a session produces no output for `idle_timeout`, it's considered stuck.
+Sessions are monitored via Claude's JSONL session log, not arbitrary timeouts:
 
 ```toml
 [agent.fix]
-heartbeat = "output"
-idle_timeout = "3m"
-on_stuck = ["nudge", "restart"]
+on_idle = { action = "nudge", message = "Continue working on the task." }
+on_exit = { action = "recover", message = "Previous attempt exited. Try again." }
+on_error = "escalate"
 ```
 
-When idle too long, recovery actions trigger in order: nudge → restart → escalate.
+**State detection from session log:**
 
-**Why output-based heartbeat works**: Claude Code produces regular output during tool calls. Extended silence typically means the agent is stuck, not thinking. For agents that legitimately go quiet, increase `idle_timeout`.
+| State | Log Indicator | Trigger |
+|-------|--------------|---------|
+| Working | `stop_reason: "tool_use"` or recent `user` line | Keep monitoring |
+| Waiting for input | `stop_reason: "end_turn"`, no new `user` line | `on_idle` |
+| API error | Error in log (unauthorized, quota, network) | `on_error` |
+
+**Process exit detection:**
+
+| Check | Method | Trigger |
+|-------|--------|---------|
+| tmux alive | `tmux has-session` | Session gone |
+| Claude alive | `pgrep -P <pane_pid>` | `on_exit` |
+
+**Why log-based detection works**: Claude Code writes structured JSONL logs with explicit turn boundaries. When `stop_reason: "end_turn"` appears with no subsequent user message, Claude is waiting for input - the exact moment to nudge.
+
+Agents can run indefinitely. There's no timeout.
 
 ## Relationship to Runbooks
 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  Runbook                                                │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐ │
-│  │   Worker    │───►│  Pipeline   │───►│    Agent    │ │
-│  └─────────────┘    └─────────────┘    └─────────────┘ │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐  │
+│  │   Worker    │───►│  Pipeline   │───►│    Agent    │  │
+│  └─────────────┘    └─────────────┘    └─────────────┘  │
 └─────────────────────────────────────────────────────────┘
                             │                   │
                             ▼                   ▼
 ┌─────────────────────────────────────────────────────────┐
 │  Execution                                              │
-│  ┌─────────────┐         ┌─────────────┐               │
-│  │  Workspace  │◄────────│   Session   │               │
-│  │ (git worktree)        │   (tmux)    │               │
-│  └─────────────┘         └─────────────┘               │
+│  ┌─────────────┐         ┌─────────────┐                │
+│  │  Workspace  │◄────────│   Session   │                │
+│  │ (git worktree)        │   (tmux)    │                │
+│  └─────────────┘         └─────────────┘                │
 └─────────────────────────────────────────────────────────┘
 ```
 

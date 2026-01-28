@@ -19,22 +19,24 @@ otters/
 
 ### Dead Code Policy
 - All unused code must be removed, not commented out
-- No `#[allow(dead_code)]` without documented justification
 - Unused dependencies must be removed from Cargo.toml
 
-### Escape Hatch Policy
-- `unsafe` blocks require safety comment explaining invariants
-- `unwrap()`/`expect()` only in:
-  - Tests
-  - Infallible cases with comment explaining why
-  - CLI parsing where panic is acceptable
-- `#[allow(...)]` requires justification comment above
-
 ### Test Conventions
-- Unit tests in `*_tests.rs` files, imported via `#[cfg(test)]`
+- Unit tests in `*_tests.rs` files, imported from the module under test:
+  ```rust
+  // In protocol.rs:
+  #[cfg(test)]
+  #[path = "protocol_tests.rs"]
+  mod tests;
+  ```
 - Integration tests in `tests/` directory
 - Use `FakeClock`, `FakeAdapters` for deterministic tests
 - Property tests for state machine transitions
+
+## Commits
+
+Use conventional commit format: `type(scope): description`
+Types: feat, fix, chore, docs, test, refactor
 
 ## Landing the Plane
 
@@ -44,7 +46,9 @@ Before committing changes:
 - [ ] Run `make check` for full verification
   - `cargo fmt --all -- --check`
   - `cargo clippy --all-targets --all-features -- -D warnings`
+  - `scripts/policy`
+  - `quench check`
   - `cargo test --all`
   - `cargo build --all`
   - `cargo audit`
-  - `cargo deny check`
+  - `cargo deny check licenses bans sources`

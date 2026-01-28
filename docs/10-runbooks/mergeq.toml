@@ -40,7 +40,7 @@ next = "merge"
 [[pipeline.merge.phase]]
 name = "merge"
 lock = "main_branch"
-strategy = "merge"
+run = { strategy = "merge" }
 next = "cleanup"
 on_fail = "escalate"
 
@@ -74,7 +74,7 @@ on_timeout = "oj queue remove merges {id}"
 condition = """
 [ -z "{pipeline}" ] || (
     ! oj pipeline has-session {pipeline} &&
-    wk list -l plan:{pipeline} -s todo,in_progress --count | grep -q '^0$'
+    wok list -l plan:{pipeline} -s todo,in_progress --count | grep -q '^0$'
 )
 """
 timeout = "5m"
@@ -107,7 +107,7 @@ rollback = "git checkout main; git branch -D temp-rebase 2>/dev/null; git reset 
 
 [[strategy.merge.attempt]]
 name = "agent-resolve"
-agent = "conflict_resolution"
+run = { agent = "conflict_resolution" }
 timeout = "30m"
 rollback = "git merge --abort 2>/dev/null; git reset --hard {checkpoint}"
 
@@ -116,7 +116,7 @@ rollback = "git merge --abort 2>/dev/null; git reset --hard {checkpoint}"
 # ------------------------------------------------------------------------------
 
 [agent.conflict_resolution]
-command = "claude --print"
+run = "claude --print"
 prompt = """
 Resolve merge conflicts for branch: {branch}
 
@@ -149,6 +149,6 @@ on_stale = ["release", "rollback", "escalate"]
 # Events
 # ------------------------------------------------------------------------------
 
-[events]
+[pipeline.merge.events]
 on_complete = "oj emit merge:complete --branch {branch} --pipeline {pipeline}"
 on_fail = "oj emit merge:fail --branch {branch} --error '{error}'"

@@ -30,16 +30,20 @@ Runbooks can emit custom events. Convention uses `category:action` format.
 
 ## Emitting Events
 
-Runbooks define events in their `[events]` section:
+Events are scoped to the primitive that owns them:
 
 ```toml
-[events]
-on_phase_change = "oj emit pipeline:phase --id {name} --phase {phase}"
-on_complete = "oj emit pipeline:complete --id {name}"
-on_fail = "oj emit pipeline:fail --id {name} --error '{error}'"
+[pipeline.build.events]
+on_phase = "echo '{name} -> {phase}' >> .oj/events.log"
+on_complete = "echo '{name} complete' >> .oj/events.log"
+on_fail = "echo '{name} failed: {error}' >> .oj/events.log"
+
+[worker.bugfix.events]
+on_start = "echo 'worker started' >> .oj/events.log"
+on_idle = "echo 'worker idle' >> .oj/events.log"
 ```
 
-Event names are arbitrary strings. Convention uses `category:action` format.
+Event handlers are shell commands with variable interpolation.
 
 ## Consuming Events
 

@@ -5,7 +5,7 @@
 1. **High testability** - 90%+ coverage through architectural choices
 2. **Composability** - Small, focused modules that compose
 3. **Offline-first** - Full functionality without network
-4. **Observability** - Events at every boundary
+4. **Observability** - Tracing at every boundary (effects, adapters) with entry/exit logging, timing metrics, and precondition validation
 5. **Recoverability** - Checkpoint and resume from any failure
 
 ## Core Pattern: Functional Core, Imperative Shell
@@ -14,7 +14,7 @@
 ┌─────────────────────────────────────────────────────────┐
 │                    Imperative Shell                     │
 │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐     │
-│  │  CLI    │  │  tmux   │  │  git    │  │   wk    │     │
+│  │  CLI    │  │  tmux   │  │  git    │  │   wok    │     │
 │  │         │  │ Adapter │  │ Adapter │  │ Adapter │     │
 │  └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘     │
 │       │            │            │            │          │
@@ -74,7 +74,7 @@
 |-------|---------------|-----|
 | **cli** | Parse args, format output | stdin/stdout |
 | **engine** | Execute effects, schedule work | Calls adapters |
-| **adapters** | Wrap external tools (tmux, git, wk) | Subprocess I/O |
+| **adapters** | Wrap external tools (tmux, git, wok) | Subprocess I/O |
 | **storage** | WAL, snapshots, state persistence | File I/O |
 | **runbook** | Parse TOML, validate, load templates | File read |
 | **core** | Pure state machines, effect generation | None |
@@ -136,6 +136,7 @@ Engine ──▶ Core.transition(event) ──▶ (NewState, Effects)
 
 ## See Also
 
+- [Daemon](01-daemon.md) - Process architecture (oj + ojd)
 - [Effects](02-effects.md) - Effect types and execution
 - [Coordination](03-coordination.md) - Lock, Semaphore, Guard
 - [Storage](04-storage.md) - WAL and state persistence

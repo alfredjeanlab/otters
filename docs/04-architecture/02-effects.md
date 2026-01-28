@@ -10,25 +10,27 @@ pub enum Effect {
     Emit { event: Event },
 
     // Session management
-    Spawn { workspace: WorkspaceId, command: String },
-    Send { session: SessionId, input: String },
-    Kill { session: SessionId },
+    Spawn {
+        workspace_id: String,
+        command: String,
+        env: Vec<(String, String)>,
+        cwd: Option<PathBuf>,
+    },
+    Send { session_id: String, input: String },
+    Kill { session_id: String },
 
     // Git operations
     WorktreeAdd { branch: String, path: PathBuf },
     WorktreeRemove { path: PathBuf },
 
-    // Coordination
-    AcquireLock { name: String, holder: HolderId },
-    ReleaseLock { name: String, holder: HolderId },
-    AcquireSemaphore { name: String, holder: HolderId, slots: u32 },
-    ReleaseSemaphore { name: String, holder: HolderId },
-
-    // Queue
-    DeadLetter { queue: QueueId, item: QueueItem },
-
-    // Worker
-    WakeWorker { worker: WorkerId },
+    // Shell execution
+    Shell {
+        pipeline_id: String,
+        phase: String,
+        command: String,
+        cwd: PathBuf,
+        env: HashMap<String, String>,
+    },
 
     // Timers
     SetTimer { id: String, duration: Duration },
@@ -73,9 +75,39 @@ Effects are executed via adapters:
 | Spawn, Send, Kill | SessionAdapter |
 | WorktreeAdd, WorktreeRemove | RepoAdapter |
 | Notify | NotifyAdapter |
+| Shell | Direct subprocess |
 | Persist | Storage (WAL) |
 
-Coordination effects (Lock, Semaphore) update in-memory state and persist via WAL.
+## Instrumentation
+
+Effects implement `TracedEffect` for consistent observability:
+
+```rust
+pub trait TracedEffect {
+    /// Effect name for log spans (e.g., "spawn", "shell")
+    fn name(&self) -> &'static str;
+
+    /// Key-value pairs for structured logging
+    fn fields(&self) -> Vec<(&'static str, String)>;
+}
+```
+
+The executor wraps all effect execution with tracing:
+
+```rust
+pub async fn execute(&self, effect: Effect) -> Result<Option<Event>, ExecuteError> {
+    // Create span with effect name
+    // Log entry with effect-specific fields
+    // Record start time
+    // Execute effect
+    // Log completion or error with elapsed time
+}
+```
+
+This provides:
+- Entry logging with effect-specific fields
+- Timing metrics on every operation
+- Consistent error logging with context
 
 ## Timer Effects
 

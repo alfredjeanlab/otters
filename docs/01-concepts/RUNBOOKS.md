@@ -8,24 +8,24 @@ A runbook is a file that defines **entrypoints** (things that run) and the **bui
 ┌─────────────────────────────────────────────────────────────┐
 │ ENTRYPOINTS (things that run)                               │
 │                                                             │
-│   command ──► user invokes, runs once                       │
+│   command ──► user invokes, runs pipeline or queues work    │
 │   worker ───► queue-driven daemon                           │
-│   cron ─────► time-driven daemon                            │
+│   cron ─────► time-driven, runs monitors                    │
 └─────────────────────────────────────────────────────────────┘
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
 │ BUILDING BLOCKS (composed by entrypoints)                   │
 │                                                             │
-│   queue ────► work items                                    │
+│   queue ────► work items for workers                        │
 │   pipeline ─► phased execution                              │
 │   agent ────► AI agent invocation                           │
+│   monitor ──► condition checking + response                 │
+│   action ───► named operations                              │
 │   guard ────► pre/post conditions                           │
 │   strategy ─► fallback chain                                │
 │   lock ─────► exclusive access                              │
 │   semaphore ► limited concurrency                           │
-│   monitor ──► condition checking + response                 │
-│   action ───► named operations                              │
 └─────────────────────────────────────────────────────────────┘
                            │
                            ▼
@@ -33,7 +33,7 @@ A runbook is a file that defines **entrypoints** (things that run) and the **bui
 │ RECOVERY & OBSERVABILITY                                    │
 │                                                             │
 │   actions ──► nudge, restart, requeue, escalate, ...        │
-│   events ───► emitted for tracking, can wake workers        │
+│   events ───► emitted for tracking                          │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -43,19 +43,16 @@ Three primitives define things that run:
 
 | Primitive | Trigger | Lifecycle | Use case |
 |-----------|---------|-----------|----------|
-| **command** | User invokes | Runs once | `oj run build name=auth` |
+| **command** | User invokes | Runs once | `oj run build auth "Add auth"` |
 | **worker** | Queue item | Start/stop/wake | Process bugs, merge branches |
 | **cron** | Schedule | Enable/disable | Cleanup, monitoring |
 
-```
-User ─── oj run ───► Command ───► queues work ───► wakes Worker
-                                                        │
-                                                        ▼
-                                                   processes items
-                                                        │
-Timer ─── interval ───► Cron ───► runs monitors ───────►│
-                                                        ▼
-                                                   Pipeline/Agent
+```text
+User ─── oj run ───► Command ─┬─► Pipeline ───► Agent (direct)
+                              │
+                              └─► Queue ───► Worker ───► Pipeline (background)
+                                                │
+Timer ─── interval ───► Cron ───► Monitor ───► Action
 ```
 
 ### Command
@@ -65,13 +62,14 @@ User-facing entrypoint. Accepts arguments, runs once.
 ```toml
 [command.build]
 args = "<name> <prompt>"
-run = """
-oj queue add builds name={name} prompt={prompt}
-oj worker wake builds
-"""
+run = { pipeline = "build" }
 ```
 
 Invoked: `oj run build auth "Add authentication"`
+
+The `run` field specifies what to execute:
+- Pipeline: `run = { pipeline = "build" }`
+- Shell: `run = "echo hello"`
 
 #### Argument Syntax
 
@@ -82,15 +80,15 @@ Invoked: `oj run build auth "Add authentication"`
 | `<files...>` | Required variadic (1+) |
 | `[files...]` | Optional variadic (0+) |
 | `--flag` | Boolean flag |
+| `-f/--flag` | Boolean flag with short alias |
 | `--opt <val>` | Required flag with value |
 | `[--opt <val>]` | Optional flag with value |
-| `-f` | Short alias (defined separately) |
+| `[-o/--opt <val>]` | Optional flag with value and short alias |
 
 Complex example:
 ```toml
 [command.deploy]
-args = "<env> [--tag <version>] [--force] [targets...]"
-aliases = { f = "force", t = "tag" }
+args = "<env> [-t/--tag <version>] [-f/--force] [targets...]"
 defaults = { tag = "latest" }
 ```
 
@@ -133,7 +131,7 @@ Holds work items for workers to process.
 
 ```toml
 [queue.bugs]
-source = "wk list -l bug -s todo --json"
+source = "wok list -l bug -s todo --json"
 order = "priority"
 visibility_timeout = "30m"
 max_retries = 2
@@ -149,7 +147,7 @@ retention = "7d"
 
 ### Pipeline
 
-Phased execution with state tracking. Workers invoke pipelines to process items.
+Phased execution with state tracking. Commands or workers invoke pipelines.
 
 ```toml
 [pipeline.fix]
@@ -162,17 +160,20 @@ next = "fix"
 
 [[pipeline.fix.phase]]
 name = "fix"
-agent = "fix"
+run = { agent = "fix" }
 semaphore = "agents"
 post = ["tests_pass"]
 next = "merge"
 on_fail = "escalate"
 ```
 
-Phases can:
-- Run shell commands (`run = "..."`)
-- Invoke agents (`agent = "..."`)
-- Apply strategies (`strategy = "..."`)
+The `run` field specifies what to execute:
+- Shell command: `run = "git worktree add ..."`
+- Agent reference: `run = { agent = "fix" }`
+- Strategy reference: `run = { strategy = "merge" }`
+- Pipeline reference: `run = { pipeline = "build" }` (from commands)
+
+Phases can also:
 - Require guards (`pre = [...]`, `post = [...]`)
 - Acquire locks (`lock = "..."`)
 - Acquire semaphore slots (`semaphore = "..."`)
@@ -191,19 +192,19 @@ An AI agent invocation - runs Claude in a monitored session.
 
 ```toml
 [agent.fix]
-command = "claude --print"
+run = "claude --print"
 prompt = "Fix the bug: {bug.description}"
 cwd = "{workspace}"
-timeout = "1h"
-idle_timeout = "3m"
-heartbeat = "output"
-on_stuck = ["nudge", "restart"]
-on_timeout = "escalate"
+on_idle = { action = "nudge", message = "Continue working on fixing the bug." }
+on_exit = { action = "recover", message = "Previous attempt exited. Try again." }
+on_error = "escalate"
 ```
 
-- **heartbeat**: How to detect liveness (`output` for terminal activity)
-- **idle_timeout**: Max time without heartbeat before considered stuck
-- **on_stuck**: Recovery chain when idle
+- **on_idle**: What to do when agent is waiting for input (`nudge`, `done`, `escalate`)
+- **on_exit**: What to do when agent process exits (`done`, `recover`, `restart`, `escalate`)
+- **on_error**: What to do on API errors (`fail`, `escalate`)
+
+**Note:** Agents can run indefinitely - there's no timeout. State detection uses Claude's session log, not arbitrary timeouts.
 
 ### Templates
 
@@ -238,7 +239,7 @@ Templates receive context from the pipeline/agent:
 ```toml
 [agent.execution]
 inputs = [
-    { name = "issues", source = "wk list -l plan:{name} --json" },
+    { name = "issues", source = "wok list -l plan:{name} --json" },
     { name = "plan", source = "cat plans/{name}.md" },
 ]
 ```
@@ -287,7 +288,7 @@ rollback = "git rebase --abort; git reset --hard {checkpoint}"
 
 [[strategy.merge.attempt]]
 name = "agent-resolve"
-agent = "conflict_resolution"
+run = { agent = "conflict_resolution" }
 timeout = "30m"
 rollback = "git reset --hard {checkpoint}"
 ```
@@ -339,14 +340,14 @@ response = ["nudge", "restart:2", "escalate"]
 [monitor.stale_locks]
 source = "oj lock list --json"
 condition = "oj lock is-stale {id}"
-action = "oj lock force-release {id}"
+run = "oj lock force-release {id}"
 ```
 
 Monitors unify two use cases:
 - **Watching**: Check condition, trigger response chain on match
 - **Scanning**: Find resources, clean up those matching condition
 
-The `source` provides items to check. The `condition` (shell command, exit 0 = match) filters them. Then either `response` (action chain with escalation) or `action` (direct shell command) handles matches.
+The `source` provides items to check. The `condition` (shell command, exit 0 = match) filters them. Then either `response` (action chain with escalation) or `run` (direct shell command) handles matches.
 
 ### Action
 
@@ -374,7 +375,7 @@ Recovery actions form chains - try each until one succeeds:
 
 | Action | Effect |
 |--------|--------|
-| `nudge` | Poke stuck processor |
+| `nudge` | Send message prompting agent to continue |
 | `restart` | Kill and restart |
 | `restart:N` | Restart up to N times |
 | `requeue` | Put back in queue |
@@ -394,13 +395,19 @@ Example chain: `["nudge", "restart:2", "escalate"]`
 
 Emitted for observability. Can wake workers and guards.
 
+Events are scoped to the primitive that owns them:
+
 ```toml
-[events]
-on_phase_change = "oj emit pipeline:phase --id {name} --phase {phase}"
-on_complete = "oj emit pipeline:complete --id {name}"
+[pipeline.build.events]
+on_phase = "echo '{name} -> {phase}' >> .oj/events.log"
+on_complete = "echo '{name} complete' >> .oj/events.log"
+on_fail = "echo '{name} failed: {error}' >> .oj/events.log"
 
 [worker.bugfix]
 wake_on = ["bug:created", "bug:prioritized"]
+
+[worker.bugfix.events]
+on_start = "echo 'bugfix worker started' >> .oj/events.log"
 ```
 
 ## File Organization
@@ -409,8 +416,8 @@ Each runbook file defines related primitives:
 
 | File | Defines | Description |
 |------|---------|-------------|
-| `build.toml` | command, worker, pipeline | Feature development: plan → execute → merge |
-| `bugfix.toml` | command, worker, pipeline | Bug fixing: pick bug → fix → verify → merge |
+| `build.toml` | command, pipeline, agents | Feature development: plan → execute → merge |
+| `bugfix.toml` | command, worker, queue, pipeline | Bug fixing: pick bug → fix → verify → merge |
 | `watchdog.toml` | cron, monitors, actions | Stuck detection: nudge → restart → escalate |
 | `janitor.toml` | cron, monitors | Cleanup: stale locks, worktrees, sessions |
 

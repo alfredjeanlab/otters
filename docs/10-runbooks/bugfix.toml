@@ -30,7 +30,7 @@ wake_on = ["bug:created", "bug:prioritized"]
 # ------------------------------------------------------------------------------
 
 [queue.bugs]
-source = "wk list -l bug -s todo --json"
+source = "wok list -l bug -s todo --json"
 order = "priority"
 visibility_timeout = "30m"
 max_retries = 2
@@ -47,33 +47,30 @@ retention = "7d"
 inputs = ["bug"]
 
 [pipeline.fix.defaults]
-workspace = ".worktrees/bugfix-{bug.id}"
 branch = "fix/{bug.id}"
 
 [[pipeline.fix.phase]]
 name = "setup"
-run = """
-git worktree add {workspace} -b {branch}
-wk start {bug.id}
-"""
+run = "wok start {bug.id}"
 next = "fix"
 
 [[pipeline.fix.phase]]
 name = "fix"
-agent = "bugfixer"
+run = { agent = "bugfixer" }
 semaphore = "agents"
 next = "verify"
 on_fail = "escalate"
 
 [[pipeline.fix.phase]]
 name = "verify"
-run = "cd {workspace} && make test"
+run = "make test"
+cwd = "{workspace}"
 next = "merge"
 on_fail = "fix"  # Loop back
 
 [[pipeline.fix.phase]]
 name = "merge"
-strategy = "merge"
+run = { strategy = "merge" }
 lock = "main_branch"
 next = "cleanup"
 on_fail = "escalate"
@@ -81,9 +78,8 @@ on_fail = "escalate"
 [[pipeline.fix.phase]]
 name = "cleanup"
 run = """
-git worktree remove {workspace}
 git push origin --delete {branch}
-wk done {bug.id}
+wok done {bug.id}
 """
 
 # ------------------------------------------------------------------------------
@@ -91,7 +87,7 @@ wk done {bug.id}
 # ------------------------------------------------------------------------------
 
 [agent.bugfixer]
-command = "claude --print"
+run = "claude --print"
 prompt = """
 Fix the bug described in issue {bug.id}:
 
@@ -151,6 +147,6 @@ on_orphan_work = "requeue"
 # Events
 # ------------------------------------------------------------------------------
 
-[events]
+[pipeline.fix.events]
 on_complete = "oj emit bugfix:complete --bug {bug.id}"
 on_fail = "oj emit bugfix:fail --bug {bug.id} --error '{error}'"

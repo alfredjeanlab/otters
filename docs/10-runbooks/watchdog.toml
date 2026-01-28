@@ -37,7 +37,7 @@ response = ["restart", "escalate"]
 [monitor.worker_health]
 source = "oj worker list --json"
 condition = "! oj worker healthy {id}"
-action = "oj worker restart {id}"
+run = "oj worker restart {id}"
 
 # ------------------------------------------------------------------------------
 # Actions
@@ -59,7 +59,7 @@ max_attempts = 2
 # Events
 # ------------------------------------------------------------------------------
 
-[events]
+[cron.watchdog.events]
 on_nudge = "oj emit watchdog:nudge --id {name}"
 on_restart = "oj emit watchdog:restart --id {name}"
 on_escalate = "oj emit watchdog:escalate --id {name}"

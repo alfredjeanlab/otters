@@ -7,7 +7,7 @@ How Claude Code runs within the oj orchestration system.
 Claude Code runs in tmux sessions for:
 - **Isolation**: Separate environment per agent
 - **Output capture**: Monitor stdout for heartbeat detection
-- **Input injection**: Send keystrokes to nudge stuck agents
+- **Input injection**: Send messages to nudge stuck agents
 - **Clean termination**: Kill sessions when stuck or complete
 
 The orchestrator creates, monitors, and destroys sessions. Claude Code doesn't manage its own lifecycle.
@@ -40,10 +40,28 @@ Agents are fallible - they forget to signal, get stuck, or exit unexpectedly. De
 
 ## Stuck Recovery
 
-When no heartbeat for too long:
-1. **Nudge**: Send interrupt (Ctrl-C)
-2. **Restart**: Kill session, start fresh
-3. **Escalate**: Alert human
+Detection via session log (not arbitrary timeouts):
+
+1. **Detect**: Session log shows `stop_reason: "end_turn"` with no new user message
+2. **Nudge**: Send a message prompting Claude to continue
+3. **Escalate**: If nudge doesn't help, notify human
+
+Nudging works because Claude Code accepts user input via the terminal. A nudge message acts like typing a follow-up prompt, encouraging the agent to resume work.
+
+**Recovery commands for humans:**
+```bash
+oj session attach <id>         # Attach to see what's happening
+oj session send <id> "message" # Send follow-up message
+oj pipeline resume <id>        # Resume monitoring
+oj pipeline fail <id>          # Mark as failed
+```
+
+**Failure detection:**
+The session log also reveals errors that require escalation:
+- **Unauthorized**: Invalid API key
+- **Out of credits**: Billing/quota exceeded
+- **Network error**: Connection failed (auto-retry)
+- **Rate limited**: Too many requests (auto-retry with backoff)
 
 ## Shell Commands
 
@@ -78,8 +96,8 @@ Example configuration in `settings.local.json`:
 ```json
 {
   "hooks": {
-    "SessionStart": [{"hooks": [{"type": "command", "command": "wk prime"}]}],
-    "PreCompact": [{"hooks": [{"type": "command", "command": "wk prime"}]}],
+    "SessionStart": [{"hooks": [{"type": "command", "command": "wok prime"}]}],
+    "PreCompact": [{"hooks": [{"type": "command", "command": "wok prime"}]}],
     "Stop": [{"hooks": [{"type": "command", "command": "oj done"}]}]
   }
 }
@@ -89,7 +107,7 @@ Example configuration in `settings.local.json`:
 
 Task-specific context via parent directory:
 
-```
+```text
 workspace/
 ├── CLAUDE.md           # Agent instructions: "Fix bug #123..."
 └── project/            # The actual codebase (worktree)

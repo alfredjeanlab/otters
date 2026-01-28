@@ -1,6 +1,39 @@
 # CLI Reference
 
-The `oj` command manages runbook execution.
+The `oj` command is a thin client that communicates with the `ojd` daemon. Most commands send events or queries over a Unix socket; the daemon owns the event loop and state.
+
+See [Daemon Architecture](../04-architecture/01-daemon.md) for details on the process split.
+
+## Project Structure
+
+```text
+<project>/
+└── .oj/
+    ├── config.toml          # Project config (optional)
+    └── runbooks/            # Runbook files
+        ├── build.toml       # oj run build ...
+        ├── bugfix.toml      # oj run fix ...
+        └── ...
+```
+
+CLI finds the project root by walking up from cwd looking for `.oj/` directory.
+
+## Daemon
+
+### oj daemon
+
+Manage the background daemon.
+
+```bash
+oj daemon start              # Start daemon (background)
+oj daemon start --foreground # Start in foreground (debugging)
+oj daemon stop               # Graceful shutdown
+oj daemon status             # Health check
+oj daemon logs               # View daemon logs
+```
+
+The daemon auto-starts on first command if not already running.
+Explicit `oj daemon start` is only needed for debugging or custom configurations.
 
 ## Entrypoints
 
@@ -136,6 +169,7 @@ Runtime context passed to agents:
 
 | Variable | Purpose |
 |----------|---------|
+| `OJ_PROJECT_ROOT` | Project root path (for daemon connection) |
 | `OJ_PIPELINE` | Pipeline identifier |
 | `OJ_PHASE` | Current pipeline phase |
 | `OJ_WORKSPACE` | Workspace path |

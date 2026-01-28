@@ -169,7 +169,7 @@ on_timeout = "escalate"
 
 # All issues closed
 [guard.issues_closed]
-condition = "wk list -l plan:{name} -s todo,in_progress --count | grep -q '^0$'"
+condition = "wok list -l plan:{name} -s todo,in_progress --count | grep -q '^0$'"
 retry = { max = 3, interval = "10s" }
 timeout = "5m"
 

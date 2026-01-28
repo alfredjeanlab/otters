@@ -5,9 +5,9 @@ Adapters abstract external system I/O, enabling comprehensive testing without re
 ## Pattern
 
 ```
-State Machine → Effect → Executor → Adapter → subprocess
-                                      ↓
-                              FakeAdapter (tests)
+State Machine → Effect → Executor → TracedAdapter → Adapter → subprocess
+                                         ↓
+                                   FakeAdapter (tests)
 ```
 
 State machines are pure. Adapters handle all I/O. Tests use fakes.
@@ -19,8 +19,7 @@ Adapters wrap **simple CLI tools** with predictable behavior:
 | Tool | Adapter | Why |
 |------|---------|-----|
 | tmux | `SessionAdapter` | Stateful session management |
-| git | `RepoAdapter` | Worktree and merge operations |
-| wk | `IssueAdapter` | Issue tracker integration |
+| git | `RepoAdapter` | Worktree operations |
 | osascript | `NotifyAdapter` | Desktop notifications |
 
 **Claude Code does NOT use an adapter.** It's invoked via `SessionAdapter` (runs in tmux). For testing, use [claudeless](https://github.com/anthropics/claudeless) - a full CLI simulator that emulates Claude's interface, TUI, hooks, and permissions.
@@ -29,10 +28,10 @@ Adapters wrap **simple CLI tools** with predictable behavior:
 
 | Trait | Wraps | Key Methods |
 |-------|-------|-------------|
-| `SessionAdapter` | tmux | spawn, send, kill, is_alive, capture_pane |
-| `RepoAdapter` | git | worktree_add, worktree_remove, is_clean, merge |
-| `IssueAdapter` | wk CLI | list, get, start, done, note, create |
-| `NotifyAdapter` | osascript | notify |
+| `SessionAdapter` | tmux | spawn, send, kill, is_alive, capture_output |
+| `RepoAdapter` | git | worktree_add, worktree_remove, worktree_list, is_clean, merge |
+| `IssueAdapter` | wok | list, get, start, done, note, create |
+| `NotifyAdapter` | osascript | send |
 
 ## SessionAdapter
 
@@ -41,12 +40,18 @@ Manages tmux sessions for running agents.
 ```rust
 #[async_trait]
 pub trait SessionAdapter: Clone + Send + Sync + 'static {
-    async fn spawn(&self, name: &str, cwd: &Path, cmd: &str) -> Result<SessionId, SessionError>;
-    async fn send(&self, id: &SessionId, input: &str) -> Result<(), SessionError>;
-    async fn kill(&self, id: &SessionId) -> Result<(), SessionError>;
-    async fn is_alive(&self, id: &SessionId) -> Result<bool, SessionError>;
-    async fn capture_pane(&self, id: &SessionId, lines: u32) -> Result<String, SessionError>;
-    async fn list(&self) -> Result<Vec<SessionInfo>, SessionError>;
+    async fn spawn(
+        &self,
+        name: &str,
+        cwd: &Path,
+        cmd: &str,
+        env: &[(String, String)],
+    ) -> Result<String, SessionError>;
+    async fn send(&self, id: &str, input: &str) -> Result<(), SessionError>;
+    async fn kill(&self, id: &str) -> Result<(), SessionError>;
+    async fn is_alive(&self, id: &str) -> Result<bool, SessionError>;
+    async fn capture_output(&self, id: &str, lines: u32) -> Result<String, SessionError>;
+    async fn is_process_running(&self, id: &str, pattern: &str) -> Result<bool, SessionError>;
 }
 ```
 
@@ -63,7 +68,7 @@ Manages git worktrees for workspace isolation.
 pub trait RepoAdapter: Clone + Send + Sync + 'static {
     async fn worktree_add(&self, branch: &str, path: &Path) -> Result<(), RepoError>;
     async fn worktree_remove(&self, path: &Path) -> Result<(), RepoError>;
-    async fn worktree_list(&self) -> Result<Vec<WorktreeInfo>, RepoError>;
+    async fn worktree_list(&self) -> Result<Vec<String>, RepoError>;
     async fn is_clean(&self, path: &Path) -> Result<bool, RepoError>;
     async fn merge(&self, path: &Path, branch: &str, strategy: MergeStrategy) -> Result<MergeResult, RepoError>;
 }
@@ -75,7 +80,7 @@ pub trait RepoAdapter: Clone + Send + Sync + 'static {
 
 ## IssueAdapter
 
-Integrates with issue tracker (wk CLI).
+Integrates with issue tracker (wok).
 
 ```rust
 #[async_trait]
@@ -89,24 +94,57 @@ pub trait IssueAdapter: Clone + Send + Sync + 'static {
 }
 ```
 
-**Production** (`WkAdapter`): Shells out to wk CLI.
+**Production** (`WokAdapter`): Shells out to the wok cli.
 
 **Fake** (`FakeIssueAdapter`): In-memory issue state.
 
 ## NotifyAdapter
 
-Sends desktop notifications.
+Sends notifications to external channels.
 
 ```rust
 #[async_trait]
 pub trait NotifyAdapter: Clone + Send + Sync + 'static {
-    async fn notify(&self, notification: Notification) -> Result<(), NotifyError>;
+    async fn send(&self, channel: &str, message: &str) -> Result<(), NotifyError>;
 }
 ```
 
-**Production** (`OsascriptNotifier`): Uses AppleScript on macOS.
+**Production** (`NoOpNotifyAdapter`): Currently a no-op placeholder.
 
-**Fake** (`FakeNotifier`): Records notifications for test assertions.
+**Fake** (`FakeNotifyAdapter`): Records notifications for test assertions.
+
+## Traced Wrappers
+
+Adapters are wrapped with instrumentation for observability:
+
+```rust
+// At construction (in daemon lifecycle)
+let sessions = TracedSessionAdapter::new(TmuxAdapter::new());
+let repos = TracedRepoAdapter::new(GitAdapter::new(project_root));
+```
+
+Traced wrappers provide **generic** observability:
+- Entry/exit logging with operation-specific fields
+- Timing metrics (`elapsed_ms`) on every call
+- Precondition validation before delegating to inner adapter
+- Consistent error logging with context
+
+Production adapters retain **implementation-specific** logging:
+- `TmuxAdapter`: Warns when killing existing session before spawn
+- Other operational details that the generic wrapper can't know about
+
+This layering keeps observability consistent while preserving useful implementation details.
+
+## Precondition Validation
+
+Traced wrappers validate assumptions before attempting operations:
+
+| Operation | Precondition | Error |
+|-----------|-------------|-------|
+| session.spawn | cwd exists | SpawnFailed("working directory does not exist") |
+| repo.worktree_add | parent dir exists | CommandFailed("parent directory does not exist") |
+
+This catches configuration errors early with clear messages, rather than failing deep in subprocess calls. Production adapters should not duplicate these checks.
 
 ## FakeAdapters
 
@@ -133,6 +171,6 @@ Fakes enable:
 - **Deterministic tests**: No real tmux/git needed
 - **Call verification**: Assert exactly what operations were attempted
 - **Error injection**: `set_send_fails(true)` to test error paths
-- **State simulation**: Pre-populate sessions, issues, worktrees
+- **State simulation**: Pre-populate sessions, worktrees
 
 Integration tests with real adapters use `#[ignore]` and run separately.

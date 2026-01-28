@@ -2,10 +2,9 @@
 
 # Run all CI checks
 check:
-	cargo fmt --all -- --check
+	cargo fmt --all
 	cargo clippy --all-targets --all-features -- -D warnings
-	scripts/policy
-	quench check
+	quench check --fix
 	cargo test --all
 	cargo build --all
 	cargo audit

@@ -19,7 +19,7 @@ monitors = ["failed_pipelines", "repeat_failures", "dead_queue", "stale_escalati
 [monitor.failed_pipelines]
 source = "oj pipeline list --phase failed --json"
 condition = "test $(oj pipeline failure-count {name}) -lt 2"
-action = "oj pipeline resume {name}"
+run = "oj pipeline resume {name}"
 
 # Repeated failures - escalate
 [monitor.repeat_failures]
@@ -31,13 +31,13 @@ response = ["mark_flaky", "escalate"]
 [monitor.dead_queue]
 source = "oj queue dead --json"
 condition = "test $(oj queue attempts {queue} {id}) -lt 5"
-action = "oj queue requeue {queue} {id}"
+run = "oj queue requeue {queue} {id}"
 
 # Stale escalations (no response in 4h)
 [monitor.stale_escalations]
 source = "oj escalation list --status open --json"
 condition = "test $(oj escalation age {id}) -gt 14400"
-action = "oj escalation bump {id}"
+run = "oj escalation bump {id}"
 
 # ------------------------------------------------------------------------------
 # Actions
@@ -46,7 +46,7 @@ action = "oj escalation bump {id}"
 [action.mark_flaky]
 run = """
 oj pipeline label {name} flaky
-wk label {epic} flaky
+wok label {epic} flaky
 """
 cooldown = "1h"
 
@@ -54,7 +54,7 @@ cooldown = "1h"
 # Events
 # ------------------------------------------------------------------------------
 
-[events]
+[cron.triager.events]
 on_retry = "oj emit triager:retry --id {name}"
 on_escalate = "oj emit triager:escalate --id {name}"
 on_abandon = "oj emit triager:abandon --queue {queue} --id {id}"

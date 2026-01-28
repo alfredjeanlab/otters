@@ -1,41 +1,15 @@
 # Build Runbook
 #
 # Feature development: plan → decompose → execute → merge
-# Command queues work, worker processes it.
+# Command directly triggers pipeline.
 
 # ------------------------------------------------------------------------------
 # Command
 # ------------------------------------------------------------------------------
 
 [command.build]
-args = "<name> <prompt> [--priority <n>] [--after <dep>]"
-aliases = { p = "priority", a = "after" }
-defaults = { priority = 2 }
-run = """
-oj queue add builds name={name} prompt={prompt} priority={priority} after={after}
-oj worker wake builds
-"""
-
-# ------------------------------------------------------------------------------
-# Worker
-# ------------------------------------------------------------------------------
-
-[worker.builds]
-queue = "builds"
-handler = "pipeline.build"
-concurrency = 1
-idle_action = "wait:30s"
-wake_on = ["build:queued"]
-
-# ------------------------------------------------------------------------------
-# Queue
-# ------------------------------------------------------------------------------
-
-[queue.builds]
-order = "priority DESC, created_at ASC"
-visibility_timeout = "4h"
-max_retries = 1
-on_exhaust = "escalate"
+args = "<name> <prompt> [-a/--after <dep>]"
+run = { pipeline = "build" }
 
 # ------------------------------------------------------------------------------
 # Pipeline
@@ -45,16 +19,12 @@ on_exhaust = "escalate"
 inputs = ["name", "prompt", "after"]
 
 [pipeline.build.defaults]
-workspace = ".worktrees/build-{name}"
-branch = "build-{name}"
+branch = "feature/{name}"
 after = ""
 
 [[pipeline.build.phase]]
 name = "init"
-run = """
-git worktree add {workspace} -b {branch}
-wk new feature "{prompt}" -l plan:{name}
-"""
+run = "wok new feature \"{prompt}\" -l plan:{name}"
 next = "plan"
 
 [[pipeline.build.phase]]
@@ -64,21 +34,21 @@ next = "plan"
 
 [[pipeline.build.phase]]
 name = "plan"
-agent = "planning"
+run = { agent = "planning" }
 semaphore = "agents"
 post = ["plan_exists"]
 next = "decompose"
 
 [[pipeline.build.phase]]
 name = "decompose"
-agent = "decomposition"
+run = { agent = "decomposition" }
 semaphore = "agents"
 post = ["epic_created"]
 next = "execute"
 
 [[pipeline.build.phase]]
 name = "execute"
-agent = "execution"
+run = { agent = "execution" }
 semaphore = "agents"
 post = ["issues_closed"]
 next = "merge"
@@ -86,7 +56,7 @@ on_fail = "escalate"
 
 [[pipeline.build.phase]]
 name = "merge"
-strategy = "merge"
+run = { strategy = "merge" }
 lock = "main_branch"
 next = "done"
 on_fail = "escalate"
@@ -94,9 +64,8 @@ on_fail = "escalate"
 [[pipeline.build.phase]]
 name = "done"
 run = """
-git worktree remove {workspace}
 git push origin --delete {branch}
-wk done {epic}
+wok done {epic}
 """
 
 # ------------------------------------------------------------------------------
@@ -104,7 +73,7 @@ wk done {epic}
 # ------------------------------------------------------------------------------
 
 [agent.planning]
-command = "claude --print"
+run = "claude --print"
 prompt_file = "templates/plan.md"
 env = { OJ_PIPELINE = "{name}", OJ_PHASE = "plan" }
 cwd = "{workspace}"
@@ -114,7 +83,7 @@ idle_timeout = "2m"
 on_stuck = "restart"
 
 [agent.decomposition]
-command = "claude --print"
+run = "claude --print"
 prompt_file = "templates/decompose.md"
 env = { OJ_PIPELINE = "{name}", OJ_PHASE = "decompose" }
 cwd = "{workspace}"
@@ -124,7 +93,7 @@ idle_timeout = "2m"
 on_stuck = "restart"
 
 [agent.execution]
-command = "claude --print"
+run = "claude --print"
 prompt_file = "templates/execute.md"
 env = { OJ_PIPELINE = "{name}", OJ_PHASE = "execute" }
 cwd = "{workspace}"
@@ -135,7 +104,7 @@ on_stuck = ["nudge", "restart"]
 on_timeout = "escalate"
 
 [agent.conflict_resolution]
-command = "claude --print"
+run = "claude --print"
 prompt_file = "templates/conflict.md"
 env = { OJ_PIPELINE = "{name}", OJ_PHASE = "merge" }
 heartbeat = "output"
@@ -160,7 +129,7 @@ timeout = "15m"
 on_timeout = "escalate"
 
 [guard.issues_closed]
-condition = "wk list -l plan:{name} -s todo,in_progress --count | grep -q '^0$'"
+condition = "wok list -l plan:{name} -s todo,in_progress --count | grep -q '^0$'"
 retry = { max = 3, interval = "10s" }
 timeout = "5m"
 on_timeout = "escalate"
@@ -186,7 +155,7 @@ rollback = "git rebase --abort; git reset --hard {checkpoint}"
 
 [[strategy.merge.attempt]]
 name = "agent-resolve"
-agent = "conflict_resolution"
+run = { agent = "conflict_resolution" }
 timeout = "30m"
 rollback = "git reset --hard {checkpoint}"
 
@@ -204,13 +173,12 @@ max = 4
 slot_timeout = "4h"
 slot_heartbeat = "1m"
 on_orphan = "reclaim"
-on_orphan_work = "requeue"
 
 # ------------------------------------------------------------------------------
 # Events
 # ------------------------------------------------------------------------------
 
-[events]
-on_phase_change = "oj emit pipeline:phase --id {name} --phase {phase}"
+[pipeline.build.events]
+on_phase = "oj emit pipeline:phase --id {name} --phase {phase}"
 on_complete = "oj emit pipeline:complete --id {name}"
 on_fail = "oj emit pipeline:fail --id {name} --error '{error}'"

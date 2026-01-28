@@ -1,10 +1,14 @@
 version = 1
 
+[rust]
+cfg_test_split = "require"
+
 [check.cloc]
-advice = "Can the code be made more concise? If not, split large source files into sibling modules or submodules in a folder; consider refactoring to be more unit testable."
-advice_test = "Can tests be parameterized using `yare` to be more concise? If not, split large test files into a {module}_tests/ folder."
+advice_test = """
+Can tests be parameterized using `yare` to be more concise?
+If not, split large test files into a {module}_tests/ folder.
+"""
 exclude = [
-    # ONLY for intentionally large fixture data
-    # NEVER for tests
-    # NEVER for source files
+    # ONLY for intentionally large fixture/test data
+    # NEVER for tests or source files
 ]

@@ -1,6 +1,47 @@
 [workspace]
 resolver = "2"
-members = ["crates/cli", "crates/core"]
+members = [
+    "crates/cli",
+    "crates/core",
+    "crates/daemon",
+    "crates/runbook",
+    "crates/storage",
+    "crates/adapters",
+    "crates/engine",
+]
+
+# Root package for workspace-level integration tests
+[package]
+name = "oj-specs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dev-dependencies]
+assert_cmd.workspace = true
+dirs.workspace = true
+similar-asserts.workspace = true
+tempfile.workspace = true
+
+[[test]]
+name = "specs"
+path = "tests/specs.rs"
+
+[workspace.dependencies]
+async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+toml = "0.8"
+uuid = { version = "1", features = ["v4"] }
+
+# dev dependencies
+assert_cmd = "2"
+dirs = "5"
+similar-asserts = "1"
+tempfile = "3"
 
 [workspace.package]
 version = "0.1.0"
@@ -9,6 +50,7 @@ license = "MIT"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage_nightly)'] }
 
 [workspace.lints.clippy]
 unwrap_used = "deny"

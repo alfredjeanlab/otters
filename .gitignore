@@ -2,8 +2,10 @@
 .wok/
 .quench/
 target/
+coverage/
 
 # Downloaded BATS testing libraries (run scripts/spec to auto-install)
 tests/specs/bats/bats-core/
 tests/specs/bats/bats-support/
 tests/specs/bats/bats-assert/
+.v0.profile.rc
